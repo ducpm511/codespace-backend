@@ -7,6 +7,6 @@ export default (): PostgresConnectionOptions => ({
   ssl: {
     rejectUnauthorized: false, // Render yêu cầu dùng SSL
   },
-  synchronize: true,
+  synchronize: false,
   entities: [path.join(__dirname, '..', '**', '*.entity.{ts,js}')],
 });
