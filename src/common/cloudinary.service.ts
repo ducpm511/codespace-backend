@@ -1,6 +1,5 @@
 //src/common/cloudinary.service.ts
 
-/// <reference types="multer" />
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary } from 'cloudinary';
