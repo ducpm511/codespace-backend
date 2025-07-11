@@ -13,7 +13,13 @@ async function bootstrap() {
   // );
 
   app.enableCors({
-    origin: ['https://codespace-cms-omega.vercel.app', 'https://codespace.edu.vn', 'https://cms.codespace.edu.vn'], // Hoặc một mảng các origin nếu cần
+    origin: [
+      'https://codespace-cms-omega.vercel.app',
+      'https://codespace.edu.vn',
+      'https://cms.codespace.edu.vn',
+      'localhost:4000',
+      'http://localhost:4000',
+    ], // Hoặc một mảng các origin nếu cần
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true, // Nếu bạn cần xử lý cookies hoặc authorization headers
   });

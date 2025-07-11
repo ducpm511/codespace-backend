@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/enums/role.enum';
+import { CreateStudentWithParentDto } from './dto/create-student-with-parent.dto';
 
 @Controller('students')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,6 +38,18 @@ export class StudentsController {
   ): Promise<StudentEntity> {
     // Corrected: Directly call the 'create' method, which now handles parent creation/assignment internally.
     return await this.studentsService.create(createStudentDto);
+  }
+
+  @Post('create-with-parent')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async createWithParent(
+    @Body() createStudentWithParentDto: CreateStudentWithParentDto,
+  ): Promise<StudentEntity> {
+    return await this.studentsService.createWithParent(
+      createStudentWithParentDto,
+    );
   }
 
   @Get()

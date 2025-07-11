@@ -7,6 +7,7 @@ import {
   IsDateString,
   IsEmail,
   IsNotEmpty,
+  IsArray,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -25,7 +26,7 @@ export class CreateNewParentDto {
   @IsEmail({}, { message: 'Email phụ huynh không hợp lệ.' })
   email?: string;
 
-  @IsNotEmpty({ message: 'Địa chỉ không được để trống.' })
+  @IsOptional({ message: 'Địa chỉ không được để trống.' })
   @IsString({ message: 'Địa chỉ phải là chuỗi.' })
   address: string;
 }
@@ -46,9 +47,10 @@ export class CreateStudentWithParentDto {
   @IsString({ message: 'Giới tính phải là chuỗi.' })
   gender: string;
 
-  @IsOptional() // Yêu cầu mới: classCode không bắt buộc khi tạo học sinh
-  @IsString({ message: 'Mã lớp học phải là chuỗi.' })
-  classCode?: string; // Đã đổi thành optional
+  @IsArray({ message: 'Class IDs phải là một mảng.' })
+  @IsInt({ each: true, message: 'Mỗi Class ID phải là số nguyên.' })
+  // @ArrayMinSize(1, { message: 'Vui lòng chọn ít nhất một lớp học.' }) // Bỏ comment nếu lớp học là bắt buộc
+  classIds: number[]; // Mảng các ID lớp học
 
   @IsOptional()
   @IsInt({ message: 'ID phụ huynh phải là số nguyên.' })

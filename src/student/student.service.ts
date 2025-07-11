@@ -11,6 +11,7 @@ import { ClassEntity } from '../entities/class.entity';
 import { ParentEntity } from '../entities/parent.entity'; // Import ParentEntity
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { CreateStudentWithParentDto } from './dto/create-student-with-parent.dto';
 
 @Injectable()
 export class StudentsService {
@@ -63,6 +64,39 @@ export class StudentsService {
 
     const savedStudent = await this.studentsRepository.save(newStudent);
     return savedStudent;
+  }
+
+  async createWithParent(
+    createStudentDto: CreateStudentWithParentDto,
+  ): Promise<StudentEntity> {
+    // Tạo phụ huynh mới từ createStudentDto.newParent
+    const createdParent = this.parentRepository.create(
+      createStudentDto.newParent,
+    );
+    const savedParent = await this.parentRepository.save(createdParent);
+
+    // Tạo student với parent vừa tạo
+    const { classIds, ...studentCoreData } = createStudentDto;
+    const newStudent = this.studentsRepository.create({
+      ...studentCoreData,
+      parent: savedParent,
+      parentId: savedParent.id,
+    });
+
+    // Xử lý mối quan hệ ManyToMany với Class
+    if (classIds && classIds.length > 0) {
+      const classes = await this.classRepository.findByIds(classIds);
+      if (classes.length !== classIds.length) {
+        throw new BadRequestException(
+          'One or more class IDs provided are invalid.',
+        );
+      }
+      newStudent.classes = classes;
+    } else {
+      newStudent.classes = [];
+    }
+
+    return await this.studentsRepository.save(newStudent);
   }
 
   async findAll(): Promise<StudentEntity[]> {
