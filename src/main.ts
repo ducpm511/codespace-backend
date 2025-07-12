@@ -19,6 +19,8 @@ async function bootstrap() {
       'https://cms.codespace.edu.vn',
       'localhost:4000',
       'http://localhost:4000',
+      'localhost:3001',
+      'http://localhost:3001',
     ], // Hoặc một mảng các origin nếu cần
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true, // Nếu bạn cần xử lý cookies hoặc authorization headers

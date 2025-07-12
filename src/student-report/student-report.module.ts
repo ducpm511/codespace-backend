@@ -7,10 +7,18 @@ import { StudentReportEntity } from 'src/entities/student-report.entity';
 import { StudentEntity } from 'src/entities/student.entity';
 import { ClassEntity } from 'src/entities/class.entity';
 import { CloudinaryService } from 'src/common/cloudinary.service';
+import { ReportFileEntity } from 'src/entities/report-file.entity';
+import { ReportLinkEntity } from 'src/entities/report-link.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StudentReportEntity, StudentEntity, ClassEntity]),
+    TypeOrmModule.forFeature([
+      StudentReportEntity,
+      StudentEntity,
+      ClassEntity,
+      ReportLinkEntity,
+      ReportFileEntity,
+    ]),
   ],
   controllers: [StudentReportController],
   providers: [StudentReportService, CloudinaryService],

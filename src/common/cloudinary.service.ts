@@ -5,7 +5,6 @@ import { ConfigService } from '@nestjs/config';
 import { v2 as cloudinary } from 'cloudinary';
 import { Readable } from 'stream';
 
-
 @Injectable()
 export class CloudinaryService {
   constructor(private readonly configService: ConfigService) {

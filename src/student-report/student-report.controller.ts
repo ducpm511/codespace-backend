@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   Query,
+  Patch,
 } from '@nestjs/common';
 import { StudentReportService } from './student-report.service';
 import { CreateStudentReportDto } from './dto/create-student-report.dto';
@@ -36,6 +37,14 @@ export class StudentReportController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.reportService.remove(+id);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: Partial<CreateStudentReportDto>,
+  ) {
+    return this.reportService.update(+id, dto);
   }
 
   @Post('upload-pdf')
