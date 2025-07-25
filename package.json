@@ -18,7 +18,9 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "seed": "ts-node src/seeding/seed.ts"
+    "seed": "ts-node src/seeding/seed.ts",
+    "typeorm:migrate": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run --dataSource src/data-source.ts",
+    "typeorm:migrate:prod": "node ./node_modules/typeorm/cli.js migration:run --dataSource dist/data-source.js"
   },
   "dependencies": {
     "@faker-js/faker": "^8.4.1",
