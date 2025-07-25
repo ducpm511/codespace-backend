@@ -6,6 +6,7 @@ import { AttendanceEntity } from 'src/entities/attendance.entity';
 import { StudentEntity } from 'src/entities/student.entity';
 import { ClassEntity } from 'src/entities/class.entity';
 import { ClassSessionEntity } from 'src/entities/class-session.entity';
+import { HolidayEntity } from 'src/entities/holidays.entity';
 
 @Module({
   providers: [AttendanceService],
@@ -16,6 +17,7 @@ import { ClassSessionEntity } from 'src/entities/class-session.entity';
       StudentEntity,
       ClassEntity,
       ClassSessionEntity,
+      HolidayEntity,
     ]),
   ],
   exports: [AttendanceService], // Export AttendanceService if needed in other modules

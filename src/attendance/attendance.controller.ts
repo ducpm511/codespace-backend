@@ -10,12 +10,14 @@ import {
   UsePipes,
   ValidationPipe,
   UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { RecordQrAttendanceDto } from './dto/record-qr-attendance.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
+import { UpdateClassSessionDto } from './dto/update-class-session.dto';
 
 @Controller('attendances')
 @UseGuards(JwtAuthGuard)
@@ -71,5 +73,14 @@ export class AttendanceController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.attendanceService.remove(+id);
+  }
+
+  @Patch('session/:id')
+  @UsePipes(new ValidationPipe())
+  updateSession(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateClassSessionDto,
+  ) {
+    return this.attendanceService.updateClassSession(id, dto);
   }
 }

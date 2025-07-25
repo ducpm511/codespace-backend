@@ -19,6 +19,9 @@ import { RecordQrAttendanceDto } from '../attendance/dto/record-qr-attendance.dt
 import { StudentEntity } from '../entities/student.entity';
 import { ClassSessionEntity } from '../entities/class-session.entity';
 import { ClassEntity } from '../entities/class.entity';
+import { HolidayEntity } from 'src/entities/holidays.entity';
+import { UpdateClassSessionDto } from './dto/update-class-session.dto';
+import * as Holidays from 'date-holidays';
 
 dayjs.locale('vi'); // Use Vietnamese locale
 // Đã loại bỏ hoàn toàn các lệnh mở rộng plugin:
@@ -36,6 +39,8 @@ export class AttendanceService {
     private readonly classSessionRepository: Repository<ClassSessionEntity>,
     @InjectRepository(ClassEntity)
     private readonly classRepository: Repository<ClassEntity>,
+    @InjectRepository(HolidayEntity)
+    private readonly holidayRepository: Repository<HolidayEntity>,
   ) {}
 
   async create(
@@ -283,6 +288,27 @@ export class AttendanceService {
 
   async generateClassSessions(classId: number): Promise<void> {
     const cls = await this.classRepository.findOne({ where: { id: classId } });
+    let holidayDates = await this.holidayRepository.find();
+    if (!holidayDates || holidayDates.length === 0) {
+      // Nếu không có ngày nghỉ trong DB, lấy từ date-holidays cho năm hiện tại
+      const hd = new (Holidays as any)();
+      hd.init('VN'); // Sử dụng 'VN' cho Việt Nam
+      console.log('Fetching holidays from date-holidays for current year');
+
+      const currentYear = dayjs().year();
+      const allHolidays = hd.getHolidays(currentYear);
+      // Chuyển đổi thành mảng giống holidayDates
+      holidayDates = allHolidays.map((h: any, idx: number) => ({
+        id: idx, // Assign a temporary id, or use 0 if not needed
+        holidayDate: h.date, // ISO string
+        name: h.name,
+        reason: h.name || 'Holiday', // Use name as reason or provide a default
+      }));
+    }
+    const holidayDateStrings = holidayDates.map((h) =>
+      dayjs(h.holidayDate).format('YYYY-MM-DD'),
+    );
+    const skippedDates: string[] = []; // Lưu danh sách ngày bị bỏ
 
     if (
       !cls ||
@@ -342,6 +368,17 @@ export class AttendanceService {
       const currentDayOfWeekEnglish =
         daysOfWeekMap[dayOfWeekVietnamese] || dayOfWeekVietnamese;
 
+      const formattedSessionDate = currentSessionDate.format('YYYY-MM-DD');
+
+      // Nếu là ngày nghỉ lễ thì bỏ qua
+      if (holidayDateStrings.includes(formattedSessionDate)) {
+        console.log(`Skipping holiday: ${formattedSessionDate}`);
+        skippedDates.push(formattedSessionDate);
+        currentSessionDate = currentSessionDate.add(1, 'day');
+        daysScanned++;
+        continue;
+      }
+
       if (cls.scheduleDays.includes(currentDayOfWeekEnglish)) {
         const formattedSessionDate = currentSessionDate.format('YYYY-MM-DD');
 
@@ -379,6 +416,8 @@ export class AttendanceService {
       }
       currentSessionDate = currentSessionDate.add(1, 'day');
       daysScanned++;
+
+      console.log('Skipped holiday dates:', skippedDates);
     }
 
     if (sessionsToCreate.length > 0) {
@@ -438,5 +477,20 @@ export class AttendanceService {
         }
       }
     }
+  }
+
+  async updateClassSession(id: number, dto: UpdateClassSessionDto) {
+    const session = await this.classSessionRepository.findOne({
+      where: { id },
+    });
+    console.log('Updating class session:', session);
+    console.log('Update DTO:', dto);
+    if (!session)
+      throw new NotFoundException(`Không tìm thấy buổi học với id ${id}`);
+
+    // Gộp dữ liệu
+    this.classSessionRepository.merge(session, dto);
+
+    return await this.classSessionRepository.save(session);
   }
 }

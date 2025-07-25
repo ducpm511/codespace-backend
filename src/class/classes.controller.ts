@@ -64,4 +64,11 @@ export class ClassesController {
   async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
     await this.classesService.remove(id);
   }
+
+  @Get(':id/attendance-matrix')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER) // Ví dụ: Tất cả đều có thể xem ma trận điểm danh
+  async getAttendanceMatrix(@Param('id', ParseIntPipe) classId: number) {
+    console.log('Fetching attendance matrix for class ID:', classId);
+    return this.classesService.getAttendanceMatrix(classId);
+  }
 }

@@ -29,7 +29,7 @@ export class ReportFileEntity {
   reportId: number;
 
   @Column({ nullable: true })
-  testType: 'midterm' | 'final';
+  testType: 'midterm' | 'final' | 'certificate';
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   score: number;

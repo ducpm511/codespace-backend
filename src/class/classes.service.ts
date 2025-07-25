@@ -6,6 +6,7 @@ import { ClassEntity } from '../entities/class.entity';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { AttendanceService } from '../attendance/attendance.service'; // <-- Import AttendanceService
+import { ClassSessionEntity } from 'src/entities/class-session.entity';
 
 @Injectable()
 export class ClassesService {
@@ -13,6 +14,8 @@ export class ClassesService {
     @InjectRepository(ClassEntity)
     private classesRepository: Repository<ClassEntity>,
     private readonly attendanceService: AttendanceService, // <-- Inject AttendanceService
+    @InjectRepository(ClassSessionEntity)
+    private classSessionRepository: Repository<ClassSessionEntity>,
   ) {}
 
   async create(createClassDto: CreateClassDto): Promise<ClassEntity> {
@@ -80,5 +83,43 @@ export class ClassesService {
     if (result.affected === 0) {
       throw new NotFoundException(`Class with ID ${id} not found.`);
     }
+  }
+
+  // class-attendance.service.ts
+  async getAttendanceMatrix(classId: number) {
+    // Lấy danh sách học sinh của lớp
+    const classWithStudents = await this.classesRepository.findOne({
+      where: { id: classId },
+      relations: ['students'],
+    });
+
+    if (!classWithStudents) throw new NotFoundException('Class not found');
+
+    console.log('Class with students:', classWithStudents);
+    const students = classWithStudents.students.map((s) => ({
+      id: s.id,
+      fullName: s.fullName,
+    }));
+    console.log('Students in class:', students);
+    // Lấy danh sách buổi học của lớp kèm điểm danh
+    const sessions = await this.classSessionRepository.find({
+      where: { classId },
+      order: { sessionDate: 'ASC' },
+      relations: ['attendances'],
+    });
+    const sessionsData = sessions.map((session) => ({
+      id: session.id,
+      sessionDate: session.sessionDate,
+      sessionNumber: session.sessionNumber,
+      attendances: session.attendances.map((att) => ({
+        studentId: att.studentId,
+        status: att.status,
+      })),
+    }));
+
+    return {
+      students,
+      sessions: sessionsData,
+    };
   }
 }

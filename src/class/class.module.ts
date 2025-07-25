@@ -4,14 +4,15 @@ import { ClassesController } from './classes.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClassEntity } from 'src/entities/class.entity';
 import { AttendanceModule } from '../attendance/attendance.module'; // <-- Import AttendanceModule
+import { ClassSessionEntity } from 'src/entities/class-session.entity';
 
 @Module({
   providers: [ClassesService],
   controllers: [ClassesController],
   imports: [
-    TypeOrmModule.forFeature([ClassEntity]),
-    AttendanceModule, // <-- Thêm AttendanceModule
+    TypeOrmModule.forFeature([ClassEntity, ClassSessionEntity]),
+    AttendanceModule,
   ],
-  exports: [ClassesService], // Thêm exports nếu các module khác cần sử dụng ClassesService
+  exports: [ClassesService],
 })
 export class ClassModule {}

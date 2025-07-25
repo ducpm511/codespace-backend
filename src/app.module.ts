@@ -21,6 +21,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { ClassModule } from './class/class.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StudentReportModule } from './student-report/student-report.module';
+import { HolidayEntity } from './entities/holidays.entity';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { StudentReportModule } from './student-report/student-report.module';
         process.env.NODE_ENV === 'production' ? dbConfigProduction : dbConfig,
     }),
     ScheduleModule.forRoot(),
-    // TypeOrmModule.forFeature([StudentEntity, ParentEntity, CourseEntity]),
+    TypeOrmModule.forFeature([HolidayEntity]),
     UserModule,
     AuthModule,
     StudentsModule,
