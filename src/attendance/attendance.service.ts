@@ -183,9 +183,12 @@ export class AttendanceService {
     // This avoids reliance on dayjs plugins entirely.
     const isInAttendanceWindow =
       currentTime.toDate().getTime() >=
-        attendanceWindowStart.toDate().getTime() &&
+      attendanceWindowStart.toDate().getTime() &&
       currentTime.toDate().getTime() <= attendanceWindowEnd.toDate().getTime();
 
+
+    console.log(`Is in attendance window: ${isInAttendanceWindow}`);
+    console.log(`Attendance window for class ${primaryClass.className} on ${todayFormatted}: ${attendanceWindowStart.format('HH:mm')} - ${attendanceWindowEnd.format('HH:mm')}`);
     if (!isInAttendanceWindow) {
       throw new NotFoundException(
         `Bạn không thể điểm danh cho lớp ${primaryClass.className} vào thời điểm này. Vui lòng điểm danh trong khoảng ${attendanceWindowStart.format('HH:mm')} - ${attendanceWindowEnd.format('HH:mm')}.`,
@@ -203,6 +206,7 @@ export class AttendanceService {
       },
     });
 
+    console.log(`Class session found: ${classSession ? 'Yes' : 'No'}`);
     if (!classSession) {
       // This case should ideally be caught by generateClassSessions, but it's a fallback.
       throw new NotFoundException(
