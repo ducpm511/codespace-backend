@@ -43,6 +43,7 @@
     "cloudinary": "^1.41.3",
     "date-holidays": "^3.24.4",
     "dayjs": "^1.11.13",
+    "luxon": "^3.7.1",
     "multer": "^2.0.1",
     "multer-storage-cloudinary": "^4.0.0",
     "nanoid": "^5.1.5",

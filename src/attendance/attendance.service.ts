@@ -22,6 +22,7 @@ import { ClassEntity } from '../entities/class.entity';
 import { HolidayEntity } from 'src/entities/holidays.entity';
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
 import * as Holidays from 'date-holidays';
+import { DateTime } from 'luxon'; // Import Luxon for date handling
 
 dayjs.locale('vi'); // Use Vietnamese locale
 // Đã loại bỏ hoàn toàn các lệnh mở rộng plugin:
@@ -158,40 +159,44 @@ export class AttendanceService {
       );
     }
 
-    // Parse primaryClass.scheduleTime (e.g., "14:50:00") and set it for today's date
+    const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+    // Lấy thời gian hiện tại theo múi giờ VN
+    const currentTimeVN = DateTime.now().setZone(VN_TIMEZONE);
+
+    // Parse scheduleTime (ví dụ: "14:50:00")
     const [scheduledHour, scheduledMinute, scheduledSecond] =
       primaryClass.scheduleTime.split(':').map(Number);
-    // Create a dayjs object for the scheduled time on the current date
-    const scheduledSessionTimeToday = dayjs()
-      .hour(scheduledHour)
-      .minute(scheduledMinute)
-      .second(scheduledSecond || 0)
-      .millisecond(0);
 
-    // Define attendance window (e.g., 30 minutes before and 30 minutes after scheduled time)
+    // Tạo thời gian buổi học hôm nay theo múi giờ VN
+    const scheduledSessionTimeToday = currentTimeVN.set({
+      hour: scheduledHour,
+      minute: scheduledMinute,
+      second: scheduledSecond || 0,
+      millisecond: 0,
+    });
+
+    // Tạo attendance window
     const ATTENDANCE_WINDOW_MINUTES = 30;
-    const attendanceWindowStart = scheduledSessionTimeToday.subtract(
-      ATTENDANCE_WINDOW_MINUTES,
-      'minute',
-    );
-    const attendanceWindowEnd = scheduledSessionTimeToday.add(
-      ATTENDANCE_WINDOW_MINUTES,
-      'minute',
-    );
+    const attendanceWindowStart = scheduledSessionTimeToday.minus({
+      minutes: ATTENDANCE_WINDOW_MINUTES,
+    });
+    const attendanceWindowEnd = scheduledSessionTimeToday.plus({
+      minutes: ATTENDANCE_WINDOW_MINUTES,
+    });
 
-    // MANUAL IMPLEMENTATION OF isBetween using getTime() for direct comparison
-    // This avoids reliance on dayjs plugins entirely.
+    // Kiểm tra currentTime có nằm trong window không
     const isInAttendanceWindow =
-      currentTime.toDate().getTime() >=
-      attendanceWindowStart.toDate().getTime() &&
-      currentTime.toDate().getTime() <= attendanceWindowEnd.toDate().getTime();
-
+      currentTimeVN >= attendanceWindowStart &&
+      currentTimeVN <= attendanceWindowEnd;
 
     console.log(`Is in attendance window: ${isInAttendanceWindow}`);
-    console.log(`Attendance window for class ${primaryClass.className} on ${todayFormatted}: ${attendanceWindowStart.format('HH:mm')} - ${attendanceWindowEnd.format('HH:mm')}`);
+    console.log(
+      `Attendance window for class ${primaryClass.className} on ${todayFormatted}: ${attendanceWindowStart.toFormat('HH:mm')} - ${attendanceWindowEnd.toFormat('HH:mm')}`,
+    );
     if (!isInAttendanceWindow) {
       throw new NotFoundException(
-        `Bạn không thể điểm danh cho lớp ${primaryClass.className} vào thời điểm này. Vui lòng điểm danh trong khoảng ${attendanceWindowStart.format('HH:mm')} - ${attendanceWindowEnd.format('HH:mm')}.`,
+        `Bạn không thể điểm danh cho lớp ${primaryClass.className} vào thời điểm này. Vui lòng điểm danh trong khoảng ${attendanceWindowStart.toFormat('HH:mm')} - ${attendanceWindowEnd.toFormat('HH:mm')}.`,
       );
     }
 
