@@ -127,8 +127,8 @@ export class AttendanceService {
 
     if (
       !primaryClass ||
-      !primaryClass.scheduleDays ||
-      !primaryClass.scheduleTime
+      !primaryClass.schedule ||
+      primaryClass.schedule.length === 0
     ) {
       throw new BadRequestException(
         `Lớp học của học sinh ${student.fullName} chưa có lịch học được thiết lập.`,
@@ -153,7 +153,11 @@ export class AttendanceService {
       daysOfWeekMap[currentDayOfWeek] || currentDayOfWeek;
 
     // First, check if today is a scheduled day for the primary class
-    if (!primaryClass.scheduleDays.includes(currentDayOfWeekEnglish)) {
+    const todaySchedule = primaryClass.schedule.find(
+      (s) => s.day === currentDayOfWeekEnglish,
+    );
+
+    if (!todaySchedule) {
       throw new NotFoundException(
         `Không có buổi học nào được lên lịch cho lớp ${primaryClass.className} vào ngày hôm nay (${currentDayOfWeek}).`,
       );
@@ -165,8 +169,9 @@ export class AttendanceService {
     const currentTimeVN = DateTime.now().setZone(VN_TIMEZONE);
 
     // Parse scheduleTime (ví dụ: "14:50:00")
-    const [scheduledHour, scheduledMinute, scheduledSecond] =
-      primaryClass.scheduleTime.split(':').map(Number);
+    const [scheduledHour, scheduledMinute, scheduledSecond] = todaySchedule.time
+      .split(':')
+      .map(Number);
 
     // Tạo thời gian buổi học hôm nay theo múi giờ VN
     const scheduledSessionTimeToday = currentTimeVN.set({
@@ -299,114 +304,93 @@ export class AttendanceService {
     const cls = await this.classRepository.findOne({ where: { id: classId } });
     let holidayDates = await this.holidayRepository.find();
     if (!holidayDates || holidayDates.length === 0) {
-      // Nếu không có ngày nghỉ trong DB, lấy từ date-holidays cho năm hiện tại
       const hd = new (Holidays as any)();
-      hd.init('VN'); // Sử dụng 'VN' cho Việt Nam
-      console.log('Fetching holidays from date-holidays for current year');
-
-      const currentYear = dayjs().year();
+      hd.init('VN');
+      const currentYear = DateTime.now().year;
       const allHolidays = hd.getHolidays(currentYear);
-      // Chuyển đổi thành mảng giống holidayDates
       holidayDates = allHolidays.map((h: any, idx: number) => ({
-        id: idx, // Assign a temporary id, or use 0 if not needed
-        holidayDate: h.date, // ISO string
+        id: idx,
+        holidayDate: h.date,
         name: h.name,
-        reason: h.name || 'Holiday', // Use name as reason or provide a default
+        reason: h.name || 'Holiday',
       }));
     }
     const holidayDateStrings = holidayDates.map((h) =>
-      dayjs(h.holidayDate).format('YYYY-MM-DD'),
+      DateTime.fromISO(
+        typeof h.holidayDate === 'string'
+          ? h.holidayDate
+          : h.holidayDate.toISOString(),
+      ).toFormat('yyyy-MM-dd'),
     );
-    const skippedDates: string[] = []; // Lưu danh sách ngày bị bỏ
+    const skippedDates: string[] = [];
 
     if (
       !cls ||
       !cls.startDate ||
-      cls.totalSessions === null ||
-      !cls.scheduleDays ||
-      cls.scheduleDays.length === 0 ||
-      !cls.scheduleTime
+      cls.totalSessions == null ||
+      !cls.schedule ||
+      !Array.isArray(cls.schedule) ||
+      cls.schedule.length === 0
     ) {
       return;
     }
 
-    // --- NEW: Delete existing sessions for this class before generating new ones ---
+    // Xóa các session cũ
     try {
-      const deleteResult = await this.classSessionRepository.delete({
-        classId: cls.id,
-      });
-      console.log(
-        `Successfully deleted ${deleteResult.affected || 0} existing sessions for class ID ${cls.id}.`,
-      );
+      await this.classSessionRepository.delete({ classId: cls.id });
     } catch (deleteError) {
-      console.error(
-        `Error deleting existing sessions for class ID ${cls.id}:`,
-        deleteError,
-      );
-      // Ghi log lỗi chi tiết hơn nếu có thể
-      if (deleteError instanceof Error) {
-        console.error('Delete error message:', deleteError.message);
-        console.error('Delete error stack:', deleteError.stack);
-      }
+      console.error('Error deleting existing sessions:', deleteError);
     }
-    // --- END NEW ---
 
     const sessionsToCreate: ClassSessionEntity[] = [];
-    let currentSessionDate = dayjs(cls.startDate);
     let sessionCounter = 1;
-
+    let currentDate = DateTime.fromJSDate(new Date(cls.startDate));
     const MAX_DAYS_TO_SCAN = cls.totalSessions * 7 * 2;
     let daysScanned = 0;
+
+    // Tạo map cho schedule: { Monday: '14:00:00', ... }
+
+    const scheduleMap = new Map<string, string>();
+    for (const s of cls.schedule) {
+      console.log(`Adding schedule: ${s.day} at ${s.time}`);
+      scheduleMap.set(s.day.trim().toLowerCase(), s.time);
+    }
+
+    console.log('scheduleMap:', scheduleMap);
 
     while (
       sessionCounter <= cls.totalSessions &&
       daysScanned < MAX_DAYS_TO_SCAN
     ) {
-      const dayOfWeekVietnamese = currentSessionDate.format('dddd');
+      const dayOfWeek = currentDate.toFormat('cccc').trim().toLowerCase(); // 'Monday', 'Tuesday', ...
+      const formattedDate = currentDate.toFormat('yyyy-MM-dd');
 
-      // Cập nhật daysOfWeekMap để khớp với định dạng "thứ ba", "chủ nhật" từ log
-      const daysOfWeekMap = {
-        'chủ nhật': 'Sunday',
-        'thứ hai': 'Monday',
-        'thứ ba': 'Tuesday',
-        'thứ tư': 'Wednesday',
-        'thứ năm': 'Thursday',
-        'thứ sáu': 'Friday',
-        'thứ bảy': 'Saturday',
-      };
-      const currentDayOfWeekEnglish =
-        daysOfWeekMap[dayOfWeekVietnamese] || dayOfWeekVietnamese;
-
-      const formattedSessionDate = currentSessionDate.format('YYYY-MM-DD');
-
-      // Nếu là ngày nghỉ lễ thì bỏ qua
-      if (holidayDateStrings.includes(formattedSessionDate)) {
-        console.log(`Skipping holiday: ${formattedSessionDate}`);
-        skippedDates.push(formattedSessionDate);
-        currentSessionDate = currentSessionDate.add(1, 'day');
+      // Bỏ qua ngày nghỉ lễ
+      if (holidayDateStrings.includes(formattedDate)) {
+        skippedDates.push(formattedDate);
+        currentDate = currentDate.plus({ days: 1 });
         daysScanned++;
         continue;
       }
 
-      if (cls.scheduleDays.includes(currentDayOfWeekEnglish)) {
-        const formattedSessionDate = currentSessionDate.format('YYYY-MM-DD');
-
+      // Nếu ngày này có trong schedule thì tạo session
+      if (scheduleMap.has(dayOfWeek)) {
+        const startTime = scheduleMap.get(dayOfWeek)!;
         const existingSession = await this.classSessionRepository.findOne({
           where: {
             classId: cls.id,
             sessionDate: Raw(
-              (alias) => `DATE(${alias}) = DATE('${formattedSessionDate}')`,
+              (alias) => `DATE(${alias}) = DATE('${formattedDate}')`,
             ),
-            startTime: cls.scheduleTime,
+            startTime,
           },
         });
 
         if (!existingSession) {
           const newSession = this.classSessionRepository.create({
             classId: cls.id,
-            // Store date as a Date object which TypeORM will convert to DATE type
-            sessionDate: currentSessionDate.toDate(),
-            startTime: cls.scheduleTime,
+            sessionDate: currentDate.toJSDate(),
+            startTime,
             sessionNumber: sessionCounter,
           });
           sessionsToCreate.push(newSession);
@@ -418,33 +402,17 @@ export class AttendanceService {
           }
           sessionCounter++;
         }
-      } else {
-        console.log(
-          `No match for ${currentDayOfWeekEnglish}. Skipping this date.`,
-        );
       }
-      currentSessionDate = currentSessionDate.add(1, 'day');
+      currentDate = currentDate.plus({ days: 1 });
       daysScanned++;
-
-      console.log('Skipped holiday dates:', skippedDates);
     }
 
+    console.log(
+      `Generated ${sessionsToCreate.length} class sessions for class ID ${classId}.`,
+    );
+
     if (sessionsToCreate.length > 0) {
-      try {
-        await this.classSessionRepository.save(sessionsToCreate);
-      } catch (bulkSaveError) {
-        console.error(
-          'CRITICAL ERROR: Error saving class sessions to DB:',
-          bulkSaveError,
-        );
-        if (bulkSaveError instanceof Error) {
-          console.error('Bulk save error message:', bulkSaveError.message);
-          console.error('Bulk save error stack:', bulkSaveError.stack);
-        }
-        throw bulkSaveError; // Re-throw to prevent silent failure
-      }
-    } else {
-      console.log('No new sessions to save (sessionsToCreate is empty).');
+      await this.classSessionRepository.save(sessionsToCreate);
     }
   }
 

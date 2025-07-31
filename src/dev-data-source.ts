@@ -10,9 +10,17 @@ export const AppDataSource = new DataSource({
   username: process.env.DATABASE_USERNAME,
   password: process.env.DATABASE_PASSWORD,
   database: process.env.DATABASE_NAME,
-  synchronize: process.env.TYPEORM_SYNC === 'true',
+  synchronize: false,
   logging: process.env.TYPEORM_LOGGING === 'true',
-  entities: [process.env.NODE_ENV === 'production' ? 'dist/entities/**/*.js' : 'src/entities/**/*.ts'],
-  migrations: [process.env.NODE_ENV === 'production' ? 'dist/migrations/**/*.js' : 'src/migrations/**/*.ts'],
+  entities: [
+    process.env.NODE_ENV === 'production'
+      ? 'dist/entities/**/*.js'
+      : 'src/entities/**/*.ts',
+  ],
+  migrations: [
+    process.env.NODE_ENV === 'production'
+      ? 'dist/migrations/**/*.js'
+      : 'src/migrations/**/*.ts',
+  ],
   subscribers: [],
 });

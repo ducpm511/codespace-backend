@@ -13,6 +13,6 @@ export default registerAs(
     database: process.env.DATABASE_NAME,
     type: 'postgres',
     entities: [path.resolve(__dirname, '..') + '/**/*.entity{.ts,.js}'],
-    synchronize: true,
+    synchronize: false,
   }),
 );

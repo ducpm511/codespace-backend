@@ -46,4 +46,9 @@ export class ClassSessionController {
   remove(@Param('id') id: string) {
     return this.classSessionService.remove(+id);
   }
+
+  @Get('schedule/:classId')
+  async getScheduleFromSession(@Param('classId') classId: string) {
+    return await this.classSessionService.getScheduleFromSession(+classId);
+  }
 }

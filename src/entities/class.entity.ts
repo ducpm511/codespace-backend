@@ -29,13 +29,8 @@ export class ClassEntity {
   @Column({ type: 'int', nullable: true }) // Tổng số buổi học dự kiến (ví dụ: 48)
   totalSessions: number | null;
 
-  // Lưu trữ các ngày trong tuần mà lớp học diễn ra (ví dụ: ['Friday', 'Monday'])
-  // Sử dụng 'jsonb' cho PostgreSQL hoặc 'json' cho MySQL. Đảm bảo TypeORM mapping đúng.
   @Column({ type: 'jsonb', nullable: true })
-  scheduleDays: string[] | null;
-
-  @Column({ type: 'time', nullable: true }) // Thời gian cụ thể của buổi học trong ngày (ví dụ: '18:00:00')
-  scheduleTime: string | null;
+  schedule: { day: string; time: string }[] | null;
   // --- Kết thúc các trường mới cho lịch học ---
 
   @Column({ type: 'varchar', length: 50, nullable: true })

@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsNotEmpty,
   IsString,
@@ -7,6 +8,15 @@ import {
   IsArray,
 } from 'class-validator';
 
+export class ClassScheduleItem {
+  @IsString({ message: 'Ngày trong lịch học phải là chuỗi.' })
+  @IsNotEmpty({ message: 'Ngày trong lịch học không được để trống.' })
+  day: string; // Ví dụ: 'Monday', 'Tuesday', ...
+
+  @IsString({ message: 'Thời gian trong lịch học phải là chuỗi.' })
+  @IsNotEmpty({ message: 'Thời gian trong lịch học không được để trống.' })
+  time: string; // Ví dụ: '14:00:00' (24-hour format)
+}
 export class CreateClassDto {
   @IsNotEmpty({ message: 'Tên lớp học không được để trống.' })
   @IsString({ message: 'Tên lớp học phải là chuỗi.' })
@@ -25,16 +35,13 @@ export class CreateClassDto {
   totalSessions?: number;
 
   @IsOptional()
-  @IsArray({ message: 'Ngày lịch học phải là một mảng.' })
-  @IsString({ each: true, message: 'Mỗi ngày trong lịch học phải là chuỗi.' })
-  scheduleDays?: string[]; // Ví dụ: ['Monday', 'Friday']
-
-  @IsOptional()
-  @IsString({
-    message:
-      'Thời gian lịch học phải là chuỗi thời gian hợp lệ (ví dụ: HH:MM:SS).',
+  @IsArray({ message: 'Lịch học phải là một mảng.' })
+  @IsNotEmpty({
+    each: true,
+    message: 'Mỗi phần tử trong lịch học phải có dữ liệu.',
   })
-  scheduleTime?: string; // Ví dụ: '18:00:00'
+  @Type(() => ClassScheduleItem)
+  schedule?: ClassScheduleItem[];
 
   @IsOptional()
   @IsString({ message: 'Năm học phải là chuỗi.' })

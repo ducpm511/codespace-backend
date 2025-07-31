@@ -21,17 +21,16 @@ export class ClassesService {
   async create(createClassDto: CreateClassDto): Promise<ClassEntity> {
     const newClass = this.classesRepository.create(createClassDto);
     const savedClass = await this.classesRepository.save(newClass);
-
     // Nếu có thông tin lịch học đầy đủ và hợp lệ, tạo các buổi học
     if (
-      savedClass.startDate !== null && // Đảm bảo không phải null
-      savedClass.totalSessions !== null &&
-      savedClass.totalSessions > 0 && // Đảm bảo không phải null và là số dương
-      savedClass.scheduleDays !== null &&
-      savedClass.scheduleDays.length > 0 && // Đảm bảo không phải null và không rỗng
-      savedClass.scheduleTime !== null // Đảm bảo không phải null
+      savedClass.startDate &&
+      savedClass.totalSessions &&
+      savedClass.schedule &&
+      Array.isArray(savedClass.schedule) &&
+      savedClass.schedule.length > 0
     ) {
       await this.attendanceService.generateClassSessions(savedClass.id);
+      console.log('Generated class sessions for class ID:', savedClass.id);
     }
     return savedClass;
   }
@@ -68,9 +67,9 @@ export class ClassesService {
       updatedClass.startDate !== null && // Đảm bảo không phải null
       updatedClass.totalSessions !== null &&
       updatedClass.totalSessions > 0 && // Đảm bảo không phải null và là số dương
-      updatedClass.scheduleDays !== null &&
-      updatedClass.scheduleDays.length > 0 && // Đảm bảo không phải null và không rỗng
-      updatedClass.scheduleTime !== null // Đảm bảo không phải null
+      updatedClass.schedule !== null &&
+      Array.isArray(updatedClass.schedule) &&
+      updatedClass.schedule.length > 0
     ) {
       await this.attendanceService.generateClassSessions(updatedClass.id);
     }

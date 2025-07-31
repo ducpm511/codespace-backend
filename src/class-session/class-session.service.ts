@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ClassSessionEntity } from '../entities/class-session.entity';
 import { CreateClassSessionDto } from './dto/create-class-session.dto';
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
+import { DateTime } from 'luxon'; // Import Luxon for date handling
 
 @Injectable()
 export class ClassSessionService {
@@ -50,5 +51,26 @@ export class ClassSessionService {
     if (result.affected === 0) {
       throw new NotFoundException(`Không tìm thấy buổi học có ID ${id}`);
     }
+  }
+  // Thêm phương thức để lấy lịch học từ buổi học
+  async getScheduleFromSession(classId: number): Promise<any> {
+    const classSessions = await this.classSessionRepository.find({
+      where: { class: { id: classId } },
+      relations: ['class'],
+      take: 2, // Giới hạn số lượng buổi học trả về
+    });
+    if (!classSessions || classSessions.length === 0) {
+      throw new NotFoundException(
+        `Không tìm thấy buổi học cho lớp ID ${classId}`,
+      );
+    }
+    const schedule = classSessions.map((session) => {
+      const time = session.startTime;
+      const sessionDate = session.sessionDate;
+      const formatedDate = DateTime.fromJSDate(new Date(sessionDate));
+      const day = formatedDate.toFormat('cccc').trim();
+      return { day, time };
+    });
+    return schedule ? schedule : [];
   }
 }
