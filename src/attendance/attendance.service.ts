@@ -182,7 +182,10 @@ export class AttendanceService {
     });
 
     // Tạo attendance window
-    const ATTENDANCE_WINDOW_MINUTES = 30;
+    const ATTENDANCE_WINDOW_MINUTES = parseInt(
+      process.env.ATTENDANCE_WINDOW_MINUTES || '60',
+      10,
+    );
     const attendanceWindowStart = scheduledSessionTimeToday.minus({
       minutes: ATTENDANCE_WINDOW_MINUTES,
     });
