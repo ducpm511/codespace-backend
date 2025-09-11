@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Raw } from 'typeorm'; // Import Raw for flexible date comparison
+import { Repository, Raw, In } from 'typeorm'; // Import Raw for flexible date comparison
 import * as dayjs from 'dayjs';
 import 'dayjs/locale/vi';
 // Đã loại bỏ hoàn toàn các import plugin dayjs:
@@ -23,6 +23,7 @@ import { HolidayEntity } from 'src/entities/holidays.entity';
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
 import * as Holidays from 'date-holidays';
 import { DateTime } from 'luxon'; // Import Luxon for date handling
+import { ManualAttendanceDto } from './dto/manual-attendance.dto';
 
 dayjs.locale('vi'); // Use Vietnamese locale
 // Đã loại bỏ hoàn toàn các lệnh mở rộng plugin:
@@ -68,6 +69,43 @@ export class AttendanceService {
       );
     }
     return attendance;
+  }
+
+  async getByStudent(studentId: number): Promise<AttendanceEntity[]> {
+    const student = await this.studentRepository.findOne({
+      where: { id: studentId },
+    });
+    if (!student) {
+      throw new NotFoundException(`Không tìm thấy học sinh có ID ${studentId}`);
+    }
+    return await this.attendanceRepository.find({
+      where: { studentId },
+      relations: ['classSession', 'classSession.class'],
+      order: { attendanceTime: 'DESC' },
+    });
+  }
+
+  async getClassSessionByStudent(
+    studentId: number,
+  ): Promise<ClassSessionEntity[]> {
+    const student = await this.studentRepository.findOne({
+      where: { id: studentId },
+      relations: ['classes'],
+    });
+    if (!student) {
+      throw new NotFoundException(`Không tìm thấy học sinh có ID ${studentId}`);
+    }
+    if (!student.classes || student.classes.length === 0) {
+      throw new BadRequestException(
+        `Học sinh ${student.fullName} chưa được phân vào lớp nào.`,
+      );
+    }
+    const classIds = student.classes.map((cls) => cls.id);
+    return await this.classSessionRepository.find({
+      where: { classId: In(classIds) },
+      relations: ['class', 'attendances'],
+      order: { sessionDate: 'ASC', startTime: 'ASC' },
+    });
   }
 
   async update(
@@ -265,6 +303,86 @@ export class AttendanceService {
     return {
       attendance: existingAttendance,
       history: attendanceHistory,
+    };
+  }
+
+  async recordManualAttendance(
+    manualAttendanceDto: ManualAttendanceDto,
+  ): Promise<{ message: string; count: number }> {
+    const { studentId, sessionIds } = manualAttendanceDto;
+
+    // 1. Kiểm tra xem học sinh có tồn tại không
+    const student = await this.studentRepository.findOne({
+      where: { id: studentId },
+    });
+    if (!student) {
+      throw new NotFoundException(
+        `Không tìm thấy học sinh với ID ${studentId}`,
+      );
+    }
+
+    // 2. Kiểm tra xem tất cả các buổi học (class sessions) có tồn tại không
+    const sessions = await this.classSessionRepository.find({
+      where: { id: In(sessionIds) },
+    });
+    if (sessions.length !== sessionIds.length) {
+      const foundIds = sessions.map((s) => s.id);
+      const notFoundIds = sessionIds.filter((id) => !foundIds.includes(id));
+      throw new NotFoundException(
+        `Không tìm thấy các buổi học với ID: ${notFoundIds.join(', ')}`,
+      );
+    }
+
+    // 3. Lấy tất cả các bản ghi điểm danh đã có của học sinh cho các buổi học này
+    const existingAttendances = await this.attendanceRepository.find({
+      where: {
+        studentId: studentId,
+        classSessionId: In(sessionIds),
+      },
+    });
+
+    // Tạo một map để truy cập nhanh các bản ghi đã có bằng classSessionId
+    const existingAttendanceMap = new Map<number, AttendanceEntity>();
+    existingAttendances.forEach((att) => {
+      if (att.classSessionId) {
+        existingAttendanceMap.set(att.classSessionId, att);
+      }
+    });
+
+    const recordsToSave: AttendanceEntity[] = [];
+
+    // 4. Logic "Upsert": Lặp qua từng session ID để cập nhật hoặc tạo mới
+    for (const sessionId of sessionIds) {
+      const existingRecord = existingAttendanceMap.get(sessionId);
+
+      if (existingRecord) {
+        // Nếu đã có bản ghi -> Cập nhật trạng thái thành 'present'
+        if (existingRecord.status !== 'present') {
+          existingRecord.status = 'present';
+          existingRecord.attendanceTime = new Date(); // Cập nhật thời gian điểm danh
+          recordsToSave.push(existingRecord);
+        }
+      } else {
+        // Nếu chưa có bản ghi -> Tạo một bản ghi mới
+        const newAttendance = this.attendanceRepository.create({
+          studentId: studentId,
+          classSessionId: sessionId,
+          status: 'present',
+          attendanceTime: new Date(),
+        });
+        recordsToSave.push(newAttendance);
+      }
+    }
+
+    // 5. Lưu tất cả các thay đổi vào CSDL trong một lần
+    // TypeORM's .save() sẽ tự động xử lý cả INSERT và UPDATE
+    if (recordsToSave.length > 0) {
+      await this.attendanceRepository.save(recordsToSave);
+    }
+
+    return {
+      message: `Điểm danh thủ công thành công cho học sinh ${student.fullName}.`,
+      count: recordsToSave.length,
     };
   }
 

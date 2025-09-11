@@ -11,6 +11,8 @@ import {
   ValidationPipe,
   UseGuards,
   ParseIntPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
@@ -18,6 +20,7 @@ import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { RecordQrAttendanceDto } from './dto/record-qr-attendance.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth/jwt-auth.guard';
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
+import { ManualAttendanceDto } from './dto/manual-attendance.dto';
 
 @Controller('attendances')
 @UseGuards(JwtAuthGuard)
@@ -37,6 +40,16 @@ export class AttendanceController {
   ) {
     // Controller sẽ trả về cả bản ghi điểm danh và lịch sử
     return this.attendanceService.recordAttendanceByQr(recordQrAttendanceDto);
+  }
+
+  @Post('manual')
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  @HttpCode(HttpStatus.OK) // Trả về status 200 OK thay vì 201 Created
+  async recordManualAttendance(
+    @Body() manualAttendanceDto: ManualAttendanceDto,
+  ) {
+    // TODO: Thêm RoleGuard để đảm bảo chỉ Admin mới có thể gọi API này.
+    return this.attendanceService.recordManualAttendance(manualAttendanceDto);
   }
 
   @Get()
@@ -59,6 +72,11 @@ export class AttendanceController {
       +studentId,
       +classId,
     );
+  }
+
+  @Get('student-class-sessions/:studentId')
+  async getClassSessionsByStudent(@Param('studentId') studentId: string) {
+    return this.attendanceService.getClassSessionByStudent(+studentId);
   }
 
   @Patch(':id')
