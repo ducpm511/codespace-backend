@@ -29,7 +29,10 @@ export class StaffService {
     return staff;
   }
 
-  async update(id: number, updateStaffDto: UpdateStaffDto): Promise<StaffEntity> {
+  async update(
+    id: number,
+    updateStaffDto: UpdateStaffDto,
+  ): Promise<StaffEntity> {
     const staff = await this.findOne(id);
     this.staffRepository.merge(staff, updateStaffDto);
     return await this.staffRepository.save(staff);

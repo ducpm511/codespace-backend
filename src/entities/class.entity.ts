@@ -43,7 +43,9 @@ export class ClassEntity {
   students: StudentEntity[];
 
   // Mối quan hệ OneToMany với ClassSessionEntity vẫn giữ nguyên
-  @OneToMany(() => ClassSessionEntity, (session) => session.class)
+  @OneToMany(() => ClassSessionEntity, (session) => session.class, {
+    cascade: true,
+  })
   classSessions: ClassSessionEntity[];
 
   @CreateDateColumn()

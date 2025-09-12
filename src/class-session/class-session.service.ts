@@ -23,19 +23,32 @@ export class ClassSessionService {
   }
 
   async findAll(): Promise<ClassSessionEntity[]> {
-    return await this.classSessionRepository.find({ relations: ['course'] }); // Lấy thông tin khóa học liên quan
+    return await this.classSessionRepository.find({ relations: ['class'] }); // Lấy thông tin lớp học liên quan
   }
 
   async findOne(id: number): Promise<ClassSessionEntity> {
     const classSession = await this.classSessionRepository.findOne({
       where: { id },
-      relations: ['course'],
+      relations: ['class'],
     });
     if (!classSession) {
       throw new NotFoundException(`Không tìm thấy buổi học có ID ${id}`);
     }
     return classSession;
   }
+
+  // async getSessionsByStudentId(
+  //   studentId: number,
+  // ): Promise<ClassSessionEntity[]> {
+  //   const classSessions = await this.classSessionRepository
+  //     .createQueryBuilder('session')
+  //     .leftJoinAndSelect('session.course', 'course')
+  //     .leftJoin('course.students', 'student')
+  //     .where('student.id = :studentId', { studentId })
+  //     .getMany();
+
+  //   return classSessions;
+  // }
 
   async update(
     id: number,

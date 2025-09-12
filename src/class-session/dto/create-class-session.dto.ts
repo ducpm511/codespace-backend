@@ -1,5 +1,5 @@
 // src/class-session/dto/create-class-session.dto.ts
-import { IsDateString, IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsNumber, Matches } from 'class-validator';
 
 export class CreateClassSessionDto {
   @IsNotEmpty()
@@ -7,7 +7,10 @@ export class CreateClassSessionDto {
   sessionDate: Date;
 
   @IsNotEmpty()
-  @IsString()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/, {
+    // Regex cho HH:mm hoặc HH:mm:ss
+    message: 'startTime phải có định dạng HH:mm hoặc HH:mm:ss.',
+  })
   startTime: string; // VD: '18:00'
 
   @IsNumber()

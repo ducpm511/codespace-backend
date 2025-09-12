@@ -18,10 +18,8 @@ import { UpdateAttendanceDto } from './dto/update-attendance.dto';
 import { RecordQrAttendanceDto } from '../attendance/dto/record-qr-attendance.dto';
 import { StudentEntity } from '../entities/student.entity';
 import { ClassSessionEntity } from '../entities/class-session.entity';
-import { ClassEntity } from '../entities/class.entity';
-import { HolidayEntity } from 'src/entities/holidays.entity';
+
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
-import * as Holidays from 'date-holidays';
 import { DateTime } from 'luxon'; // Import Luxon for date handling
 import { ManualAttendanceDto } from './dto/manual-attendance.dto';
 
@@ -39,10 +37,6 @@ export class AttendanceService {
     private readonly studentRepository: Repository<StudentEntity>,
     @InjectRepository(ClassSessionEntity)
     private readonly classSessionRepository: Repository<ClassSessionEntity>,
-    @InjectRepository(ClassEntity)
-    private readonly classRepository: Repository<ClassEntity>,
-    @InjectRepository(HolidayEntity)
-    private readonly holidayRepository: Repository<HolidayEntity>,
   ) {}
 
   async create(
@@ -419,122 +413,6 @@ export class AttendanceService {
       className: item.class_className,
       classCode: item.class_classCode,
     }));
-  }
-
-  async generateClassSessions(classId: number): Promise<void> {
-    const cls = await this.classRepository.findOne({ where: { id: classId } });
-    let holidayDates = await this.holidayRepository.find();
-    if (!holidayDates || holidayDates.length === 0) {
-      const hd = new (Holidays as any)();
-      hd.init('VN');
-      const currentYear = DateTime.now().year;
-      const allHolidays = hd.getHolidays(currentYear);
-      holidayDates = allHolidays.map((h: any, idx: number) => ({
-        id: idx,
-        holidayDate: h.date,
-        name: h.name,
-        reason: h.name || 'Holiday',
-      }));
-    }
-    const holidayDateStrings = holidayDates.map((h) =>
-      DateTime.fromISO(
-        typeof h.holidayDate === 'string'
-          ? h.holidayDate
-          : h.holidayDate.toISOString(),
-      ).toFormat('yyyy-MM-dd'),
-    );
-    const skippedDates: string[] = [];
-
-    if (
-      !cls ||
-      !cls.startDate ||
-      cls.totalSessions == null ||
-      !cls.schedule ||
-      !Array.isArray(cls.schedule) ||
-      cls.schedule.length === 0
-    ) {
-      return;
-    }
-
-    // Xóa các session cũ
-    try {
-      await this.classSessionRepository.delete({ classId: cls.id });
-    } catch (deleteError) {
-      console.error('Error deleting existing sessions:', deleteError);
-    }
-
-    const sessionsToCreate: ClassSessionEntity[] = [];
-    let sessionCounter = 1;
-    let currentDate = DateTime.fromJSDate(new Date(cls.startDate));
-    const MAX_DAYS_TO_SCAN = cls.totalSessions * 7 * 2;
-    let daysScanned = 0;
-
-    // Tạo map cho schedule: { Monday: '14:00:00', ... }
-
-    const scheduleMap = new Map<string, string>();
-    for (const s of cls.schedule) {
-      console.log(`Adding schedule: ${s.day} at ${s.time}`);
-      scheduleMap.set(s.day.trim().toLowerCase(), s.time);
-    }
-
-    console.log('scheduleMap:', scheduleMap);
-
-    while (
-      sessionCounter <= cls.totalSessions &&
-      daysScanned < MAX_DAYS_TO_SCAN
-    ) {
-      const dayOfWeek = currentDate.toFormat('cccc').trim().toLowerCase(); // 'Monday', 'Tuesday', ...
-      const formattedDate = currentDate.toFormat('yyyy-MM-dd');
-
-      // Bỏ qua ngày nghỉ lễ
-      if (holidayDateStrings.includes(formattedDate)) {
-        skippedDates.push(formattedDate);
-        currentDate = currentDate.plus({ days: 1 });
-        daysScanned++;
-        continue;
-      }
-
-      // Nếu ngày này có trong schedule thì tạo session
-      if (scheduleMap.has(dayOfWeek)) {
-        const startTime = scheduleMap.get(dayOfWeek)!;
-        const existingSession = await this.classSessionRepository.findOne({
-          where: {
-            classId: cls.id,
-            sessionDate: Raw(
-              (alias) => `DATE(${alias}) = DATE('${formattedDate}')`,
-            ),
-            startTime,
-          },
-        });
-
-        if (!existingSession) {
-          const newSession = this.classSessionRepository.create({
-            classId: cls.id,
-            sessionDate: currentDate.toJSDate(),
-            startTime,
-            sessionNumber: sessionCounter,
-          });
-          sessionsToCreate.push(newSession);
-          sessionCounter++;
-        } else {
-          if (existingSession.sessionNumber !== sessionCounter) {
-            existingSession.sessionNumber = sessionCounter;
-            await this.classSessionRepository.save(existingSession);
-          }
-          sessionCounter++;
-        }
-      }
-      currentDate = currentDate.plus({ days: 1 });
-      daysScanned++;
-    }
-
-    console.log(
-      `Generated ${sessionsToCreate.length} class sessions for class ID ${classId}.`,
-    );
-
-    if (sessionsToCreate.length > 0) {
-      await this.classSessionRepository.save(sessionsToCreate);
-    }
   }
 
   async markAbsentees(): Promise<void> {

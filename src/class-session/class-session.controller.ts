@@ -33,6 +33,11 @@ export class ClassSessionController {
     return this.classSessionService.findOne(+id);
   }
 
+  // @Get('student/:studentId')
+  // getSessionsByStudentId(@Param('studentId') studentId: string) {
+  //   return this.classSessionService.getSessionsByStudentId(+studentId);
+  // }
+
   @Patch(':id')
   @UsePipes(new ValidationPipe())
   update(

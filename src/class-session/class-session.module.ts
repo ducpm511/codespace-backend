@@ -7,6 +7,6 @@ import { ClassSessionEntity } from 'src/entities/class-session.entity';
 @Module({
   providers: [ClassSessionService],
   controllers: [ClassSessionController],
-  imports: [TypeOrmModule.forFeature([ClassSessionEntity])]
+  imports: [TypeOrmModule.forFeature([ClassSessionEntity])],
 })
 export class ClassSessionModule {}
