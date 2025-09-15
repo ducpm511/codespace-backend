@@ -86,20 +86,34 @@ export class AttendanceService {
       where: { id: studentId },
       relations: ['classes'],
     });
+
     if (!student) {
       throw new NotFoundException(`Không tìm thấy học sinh có ID ${studentId}`);
     }
     if (!student.classes || student.classes.length === 0) {
-      throw new BadRequestException(
-        `Học sinh ${student.fullName} chưa được phân vào lớp nào.`,
-      );
+      // Trả về mảng rỗng thay vì lỗi, vì học sinh có thể chưa có lớp
+      return [];
     }
+
     const classIds = student.classes.map((cls) => cls.id);
-    return await this.classSessionRepository.find({
-      where: { classId: In(classIds) },
-      relations: ['class', 'attendances'],
-      order: { sessionDate: 'ASC', startTime: 'ASC' },
-    });
+
+    // Dùng QueryBuilder để join và lọc attendance theo đúng studentId
+    return (
+      this.classSessionRepository
+        .createQueryBuilder('session')
+        .leftJoinAndSelect('session.class', 'class')
+        // Join bảng attendance VỚI ĐIỀU KIỆN chỉ lấy attendance của đúng học sinh này
+        .leftJoinAndSelect(
+          'session.attendances',
+          'attendance',
+          'attendance.studentId = :studentId',
+          { studentId },
+        )
+        .where('session.classId IN (:...classIds)', { classIds })
+        .orderBy('session.sessionDate', 'ASC')
+        .addOrderBy('session.startTime', 'ASC')
+        .getMany()
+    );
   }
 
   async update(
