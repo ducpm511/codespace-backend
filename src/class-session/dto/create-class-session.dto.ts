@@ -1,9 +1,11 @@
 // src/class-session/dto/create-class-session.dto.ts
-import { IsDateString, IsNotEmpty, IsNumber, Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDate, IsNotEmpty, IsNumber, Matches } from 'class-validator';
 
 export class CreateClassSessionDto {
+  @Type(() => Date)
   @IsNotEmpty()
-  @IsDateString()
+  @IsDate()
   sessionDate: Date;
 
   @IsNotEmpty()
