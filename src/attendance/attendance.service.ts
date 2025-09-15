@@ -139,141 +139,107 @@ export class AttendanceService {
   ): Promise<{ attendance: AttendanceEntity; history: any[] }> {
     const { qrCodeData } = recordQrAttendanceDto;
 
+    // --- Phần lấy student và primaryClass không đổi ---
     const studentIdMatch = qrCodeData.match(/^student_id:(\d+)$/);
-    if (!studentIdMatch || !studentIdMatch[1]) {
+    if (!studentIdMatch) {
       throw new BadRequestException(
         'Mã QR không hợp lệ. Định dạng phải là "student_id:ID"',
       );
     }
     const studentId = parseInt(studentIdMatch[1], 10);
-
     const student = await this.studentRepository.findOne({
       where: { id: studentId },
-      relations: ['classes'], // Assume student has a relationship with multiple classes
+      relations: ['classes'],
     });
-
     if (!student) {
       throw new NotFoundException(
         `Không tìm thấy học sinh với ID: ${studentId}`,
       );
     }
-
-    // Get the student's primary class (or find the class that has a current session)
-    // For simplicity, assume the student belongs to one class or we will take the first class
     if (!student.classes || student.classes.length === 0) {
       throw new BadRequestException(
         `Học sinh ${student.fullName} chưa được phân vào lớp nào.`,
       );
     }
-    // IMPORTANT: A student can be in multiple classes.
-    // We need to find the CURRENTLY RELEVANT class based on time/day.
-    // For now, we take the first class, which might be too strict.
-    // Consider how to select the correct class if student is in multiple.
     const primaryClass = student.classes[0];
-
-    if (
-      !primaryClass ||
-      !primaryClass.schedule ||
-      primaryClass.schedule.length === 0
-    ) {
+    if (!primaryClass?.schedule || primaryClass.schedule.length === 0) {
       throw new BadRequestException(
-        `Lớp học của học sinh ${student.fullName} chưa có lịch học được thiết lập.`,
+        `Lớp học của ${student.fullName} chưa có lịch học.`,
       );
     }
 
-    const currentTime = dayjs(); // Current scan time (e.g., 2025-06-09 14:55:00)
-    const todayFormatted = currentTime.format('YYYY-MM-DD'); // Current date (e.g., "2025-06-09")
-    const currentDayOfWeek = currentTime.format('dddd'); // Current day of week (e.g., "Thứ Hai")
-
-    // Cập nhật daysOfWeekMap để khớp với định dạng "thứ ba", "chủ nhật" từ log
-    const daysOfWeekMap = {
-      'chủ nhật': 'Sunday',
-      'thứ hai': 'Monday',
-      'thứ ba': 'Tuesday',
-      'thứ tư': 'Wednesday',
-      'thứ năm': 'Thursday',
-      'thứ sáu': 'Friday',
-      'thứ bảy': 'Saturday',
-    };
-    const currentDayOfWeekEnglish =
-      daysOfWeekMap[currentDayOfWeek] || currentDayOfWeek;
-
-    // First, check if today is a scheduled day for the primary class
-    const todaySchedule = primaryClass.schedule.find(
-      (s) => s.day === currentDayOfWeekEnglish,
-    );
-
-    if (!todaySchedule) {
-      throw new NotFoundException(
-        `Không có buổi học nào được lên lịch cho lớp ${primaryClass.className} vào ngày hôm nay (${currentDayOfWeek}).`,
-      );
-    }
+    // --- BẮT ĐẦU LOGIC SỬA LỖI ---
 
     const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
-
-    // Lấy thời gian hiện tại theo múi giờ VN
     const currentTimeVN = DateTime.now().setZone(VN_TIMEZONE);
+    const todayFormatted = currentTimeVN.toFormat('yyyy-MM-dd');
+    const currentDayOfWeek = currentTimeVN.toFormat('cccc').toLowerCase(); // 'monday', 'tuesday'...
 
-    // Parse scheduleTime (ví dụ: "14:50:00")
-    const [scheduledHour, scheduledMinute, scheduledSecond] = todaySchedule.time
-      .split(':')
-      .map(Number);
+    // THAY ĐỔI 1: Lấy TẤT CẢ các lịch học trong ngày, thay vì chỉ 1
+    const todaySchedules = primaryClass.schedule.filter(
+      (s) => s.day.toLowerCase() === currentDayOfWeek,
+    );
 
-    // Tạo thời gian buổi học hôm nay theo múi giờ VN
-    const scheduledSessionTimeToday = currentTimeVN.set({
-      hour: scheduledHour,
-      minute: scheduledMinute,
-      second: scheduledSecond || 0,
-      millisecond: 0,
-    });
+    if (todaySchedules.length === 0) {
+      throw new NotFoundException(
+        `Không có buổi học nào được lên lịch cho lớp ${primaryClass.className} vào hôm nay (${currentDayOfWeek}).`,
+      );
+    }
 
-    // Tạo attendance window
+    // LOGIC MỚI: Tìm lịch học phù hợp dựa trên time window
+    let targetSchedule = null;
     const ATTENDANCE_WINDOW_MINUTES = parseInt(
       process.env.ATTENDANCE_WINDOW_MINUTES || '60',
       10,
     );
-    const attendanceWindowStart = scheduledSessionTimeToday.minus({
-      minutes: ATTENDANCE_WINDOW_MINUTES,
-    });
-    const attendanceWindowEnd = scheduledSessionTimeToday.plus({
-      minutes: ATTENDANCE_WINDOW_MINUTES,
-    });
 
-    // Kiểm tra currentTime có nằm trong window không
-    const isInAttendanceWindow =
-      currentTimeVN >= attendanceWindowStart &&
-      currentTimeVN <= attendanceWindowEnd;
+    for (const schedule of todaySchedules) {
+      const [hour, minute] = schedule.time.split(':').map(Number);
+      const scheduledSessionTime = currentTimeVN.set({
+        hour,
+        minute,
+        second: 0,
+        millisecond: 0,
+      });
 
-    console.log(`Is in attendance window: ${isInAttendanceWindow}`);
-    console.log(
-      `Attendance window for class ${primaryClass.className} on ${todayFormatted}: ${attendanceWindowStart.toFormat('HH:mm')} - ${attendanceWindowEnd.toFormat('HH:mm')}`,
-    );
-    if (!isInAttendanceWindow) {
+      const windowStart = scheduledSessionTime.minus({
+        minutes: ATTENDANCE_WINDOW_MINUTES,
+      });
+      const windowEnd = scheduledSessionTime.plus({
+        minutes: ATTENDANCE_WINDOW_MINUTES,
+      });
+
+      // Nếu thời gian quét nằm trong khung giờ của lịch học này -> đây chính là buổi học cần điểm danh
+      if (currentTimeVN >= windowStart && currentTimeVN <= windowEnd) {
+        targetSchedule = schedule;
+        break; // Dừng lại khi đã tìm thấy
+      }
+    }
+
+    if (!targetSchedule) {
       throw new NotFoundException(
-        `Bạn không thể điểm danh cho lớp ${primaryClass.className} vào thời điểm này. Vui lòng điểm danh trong khoảng ${attendanceWindowStart.toFormat('HH:mm')} - ${attendanceWindowEnd.toFormat('HH:mm')}.`,
+        `Bạn không thể điểm danh vào thời điểm này. Vui lòng điểm danh trong khung giờ học.`,
       );
     }
 
-    // 1. Find the ClassSession for this class and today's date (ignoring time for initial find)
-    // This assumes there's only one session per class per day, which is implied by single scheduleTime.
+    // THAY ĐỔI 2: Tìm chính xác buổi học bằng cả ngày và giờ bắt đầu
     const classSession = await this.classSessionRepository.findOne({
       where: {
         classId: primaryClass.id,
         sessionDate: Raw(
           (alias) => `DATE(${alias}) = DATE('${todayFormatted}')`,
         ),
+        startTime: targetSchedule.time, // Thêm điều kiện startTime để tìm chính xác
       },
     });
 
-    console.log(`Class session found: ${classSession ? 'Yes' : 'No'}`);
     if (!classSession) {
-      // This case should ideally be caught by generateClassSessions, but it's a fallback.
       throw new NotFoundException(
-        `Không có buổi học nào được tìm thấy cho lớp ${primaryClass.className} vào ngày hôm nay (${currentDayOfWeek}). Vui lòng kiểm tra lại lịch học.`,
+        `Không tìm thấy buổi học cho lớp ${primaryClass.className} vào lúc ${targetSchedule.time} hôm nay.`,
       );
     }
 
-    // 2. Check if the student has already been marked present for this session
+    // --- Phần tạo/cập nhật bản ghi điểm danh không đổi ---
     let existingAttendance = await this.attendanceRepository.findOne({
       where: {
         studentId: student.id,
@@ -282,14 +248,12 @@ export class AttendanceService {
     });
 
     if (existingAttendance) {
-      // If a record exists, update status if necessary or just return the existing record
       if (existingAttendance.status !== 'present') {
         existingAttendance.status = 'present';
         existingAttendance.attendanceTime = new Date();
         await this.attendanceRepository.save(existingAttendance);
       }
     } else {
-      // If no record exists, create a new attendance record
       const newAttendance = this.attendanceRepository.create({
         studentId: student.id,
         classSessionId: classSession.id,
@@ -299,10 +263,7 @@ export class AttendanceService {
       existingAttendance = await this.attendanceRepository.save(newAttendance);
     }
 
-    // GẮN ĐỐI TƯỢNG HỌC SINH VÀO ĐÂY để nó được trả về trong phản hồi API
     existingAttendance.student = student;
-
-    // 3. Get student's attendance history for this class
     const attendanceHistory = await this.getAttendanceHistoryForClass(
       student.id,
       primaryClass.id,
