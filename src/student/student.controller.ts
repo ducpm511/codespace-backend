@@ -58,6 +58,28 @@ export class StudentsController {
     return await this.studentsService.findAll();
   }
 
+  @Get('birthdays-this-week')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  async getBirthdaysThisWeek(): Promise<string> {
+    console.log('Received request for birthdays this week');
+    const studentHasBirthdayThisWeek =
+      await this.studentsService.getBirthdaysInWeek();
+    const discordMessage = studentHasBirthdayThisWeek
+      .map((student) => {
+        const classNames = student.classes.join(', ');
+        const dob = student.dateOfBirth; // Định dạng ngày sinh
+        return `- ${student.fullName} (Ngày sinh: ${dob}, Lớp: ${classNames})`;
+      })
+      .join('\n');
+
+    if (discordMessage.length > 0) {
+      console.log('Students with birthdays this week:\n' + discordMessage);
+    } else {
+      console.log('No students have birthdays this week.');
+    }
+    return discordMessage || 'No students have birthdays this week.';
+  }
+
   @Get(':id')
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
   async findOne(@Param('id', ParseIntPipe) id: number): Promise<StudentEntity> {

@@ -182,4 +182,45 @@ export class StudentsService {
       throw new NotFoundException(`Student with ID ${id} not found.`);
     }
   }
+
+  async getBirthdaysInWeek(): Promise<
+    { fullName: string; dateOfBirth: Date; classes: string[] }[]
+  > {
+    console.log('Fetching birthdays this week...');
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 (Chủ nhật) đến 6 (Thứ bảy)
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - dayOfWeek); // Đặt về Chủ nhật
+    startOfWeek.setHours(0, 0, 0, 0); // Đặt về đầu ngày
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Đặt về Thứ bảy
+    endOfWeek.setHours(23, 59, 59, 999); // Đặt về cuối ngày
+
+    const students = await this.studentsRepository.find({
+      relations: ['parent', 'classes'],
+    });
+
+    console.log('Start of week:', startOfWeek);
+    const result = students.filter((student) => {
+      if (!student.dateOfBirth) return false;
+      const studentDob = new Date(student.dateOfBirth);
+      const dobThisYear = new Date(
+        new Date().getFullYear(),
+        studentDob.getMonth(),
+        studentDob.getDate(),
+      );
+      return dobThisYear >= startOfWeek && dobThisYear <= endOfWeek;
+    });
+    const studentHasBirthdayThisWeek = result.map((s) => ({
+      fullName: s.fullName,
+      dateOfBirth: s.dateOfBirth,
+      classes: s.classes ? s.classes.map((c) => c.classCode) : [],
+    }));
+    console.log(
+      'Students with birthdays this week:',
+      studentHasBirthdayThisWeek,
+    );
+    return studentHasBirthdayThisWeek; // Return the custom structure
+  }
 }
