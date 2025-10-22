@@ -1,4 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { StaffScheduleEntity } from './staff-schedule.entity';
+import { StaffAttendanceEntity } from './staff-attendance.entity';
 
 @Entity('staffs') // Đặt tên bảng trong database là 'staffs'
 export class StaffEntity {
@@ -28,4 +30,18 @@ export class StaffEntity {
 
   @Column({ type: 'varchar', length: 100 })
   title: string; // Chức danh
+
+  @Column({
+    type: 'jsonb',
+    nullable: true,
+    comment:
+      'Lưu các mức thù lao theo vai trò, ví dụ: {"part-time": 40000, "teacher": 100000}',
+  })
+  rates: Record<string, number> | null;
+
+  @OneToMany(() => StaffScheduleEntity, (schedule) => schedule.staff)
+  schedules: StaffScheduleEntity[];
+
+  @OneToMany(() => StaffAttendanceEntity, (attendance) => attendance.staff)
+  attendances: StaffAttendanceEntity[];
 }

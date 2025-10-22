@@ -22,6 +22,12 @@ import { ClassModule } from './class/class.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StudentReportModule } from './student-report/student-report.module';
 import { HolidayEntity } from './entities/holidays.entity';
+import { ShiftsModule } from './shifts/shifts.module';
+import { StaffAttendanceModule } from './stff-attendances/staff-attendance.module';
+import { StaffSchedulesModule } from './staff-schedules/staff-schedules.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { RolesModule } from './role/roles.module';
+import { OtRequestsModule } from './ot-request/ot-requests.module';
 
 @Module({
   imports: [
@@ -47,6 +53,12 @@ import { HolidayEntity } from './entities/holidays.entity';
     AttendanceModule,
     ClassModule,
     StudentReportModule,
+    ShiftsModule,
+    StaffAttendanceModule,
+    StaffSchedulesModule,
+    PayrollModule,
+    RolesModule,
+    OtRequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

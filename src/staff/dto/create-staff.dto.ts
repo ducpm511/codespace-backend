@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsString, IsDate, IsEmail } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsEmail,
+  IsObject, // <-- THÊM MỚI
+  IsOptional,
+  IsDate, // <-- THÊM MỚI
+} from 'class-validator';
+import { Type } from 'class-transformer'; // <-- THÊM MỚI
 
 export class CreateStaffDto {
   @IsNotEmpty()
@@ -9,8 +17,10 @@ export class CreateStaffDto {
   @IsString()
   phoneNumber: string;
 
+  // --- THAY ĐỔI ---
+  @Type(() => Date) // 1. Chuyển đổi chuỗi thành đối tượng Date
+  @IsDate() // 2. Xác thực xem nó có phải là đối tượng Date hợp lệ không
   @IsNotEmpty()
-  @IsDate()
   dateOfBirth: Date;
 
   @IsNotEmpty()
@@ -32,4 +42,9 @@ export class CreateStaffDto {
   @IsNotEmpty()
   @IsString()
   title: string;
+
+  // --- THÊM MỚI ---
+  @IsOptional() // `rates` là không bắt buộc (dành cho nhân viên full-time)
+  @IsObject() // Yêu cầu `rates` phải là một object
+  rates?: Record<string, number>;
 }
