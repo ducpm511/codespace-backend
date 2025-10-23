@@ -80,14 +80,14 @@ export class StaffSchedulesService {
     const skippedDates: string[] = []; // Lưu các ngày bị bỏ qua do trùng lịch
 
     // 1. Lấy tất cả lịch trình hiện có của nhân viên trong khoảng thời gian
-    const existingSchedules = await this.scheduleRepository.find({
-      where: {
-        staffId: staffId,
-        date: Between(fromDate, toDate),
-      },
-      select: ['date'], // Chỉ cần lấy ngày để kiểm tra
-    });
-    const existingDates = new Set(existingSchedules.map((s) => s.date)); // Dùng Set để kiểm tra nhanh
+    // const existingSchedules = await this.scheduleRepository.find({
+    //   where: {
+    //     staffId: staffId,
+    //     date: Between(fromDate, toDate),
+    //   },
+    //   select: ['date'], // Chỉ cần lấy ngày để kiểm tra
+    // });
+    // const existingDates = new Set(existingSchedules.map((s) => s.date)); // Dùng Set để kiểm tra nhanh
 
     // 2. Lặp qua các ngày để tạo lịch mới
     let currentDate = DateTime.fromISO(fromDate);
@@ -100,13 +100,14 @@ export class StaffSchedulesService {
 
       // Kiểm tra xem ngày này có thuộc các ngày được chọn VÀ chưa có lịch nào khác
       if (daysOfWeek.includes(jsWeekday)) {
-        if (existingDates.has(dateStr)) {
-          // Nếu ngày đã có lịch -> thêm vào danh sách bỏ qua
-          skippedDates.push(dateStr);
-        } else {
-          // Nếu ngày trống -> thêm vào danh sách sẽ tạo
-          schedulesToCreate.push({ staffId, shiftId, date: dateStr });
-        }
+        // if (existingDates.has(dateStr)) {
+        //   // Nếu ngày đã có lịch -> thêm vào danh sách bỏ qua
+        //   skippedDates.push(dateStr);
+        // } else {
+        //   // Nếu ngày trống -> thêm vào danh sách sẽ tạo
+        //   schedulesToCreate.push({ staffId, shiftId, date: dateStr });
+        // }
+        schedulesToCreate.push({ staffId, shiftId, date: dateStr });
       }
       currentDate = currentDate.plus({ days: 1 });
     }
