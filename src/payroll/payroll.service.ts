@@ -15,6 +15,8 @@ import {
 import { ShiftEntity } from '../entities/shift.entity';
 import { ClassSessionEntity } from '../entities/class-session.entity';
 
+const VN_TIMEZONE = 'Asia/Ho_Chi_Minh'; // Define standard timezone
+
 @Injectable()
 export class PayrollService {
   private readonly logger = new Logger(PayrollService.name);
@@ -42,7 +44,7 @@ export class PayrollService {
     console.log('--- BẮT ĐẦU TẠO BÁO CÁO ---');
     console.log('1. Dữ liệu đầu vào:', { fromDate, toDate, staffId });
 
-    // --- LOGIC TRUY VẤN NGÀY THÁNG ---
+    // --- TIME RANGE QUERY LOGIC ---
     const scheduleWhereCondition = {
       date: Between(fromDate, toDate),
       ...(staffId && { staffId: parseInt(staffId, 10) }),
@@ -52,8 +54,8 @@ export class PayrollService {
       timestamp: Raw(
         (alias) => `${alias} >= :fromDate AND ${alias} < :toDate`,
         {
-          fromDate: fromDate,
-          toDate: DateTime.fromISO(toDate).plus({ days: 1 }).toISODate(),
+          fromDate: fromDate, // Start of the day implicitly
+          toDate: DateTime.fromISO(toDate).plus({ days: 1 }).toISODate(), // Exclusive end date
         },
       ),
       ...(staffId && { staffId: parseInt(staffId, 10) }),
@@ -63,7 +65,7 @@ export class PayrollService {
       to_exclusive: DateTime.fromISO(toDate).plus({ days: 1 }).toISODate(),
     });
 
-    // Lấy OT đã duyệt
+    // Get approved OT
     const approvedOtWhereCondition = {
       date: Between(fromDate, toDate),
       status: OtRequestStatus.APPROVED,
@@ -116,7 +118,7 @@ export class PayrollService {
       );
       schedules.forEach((s) => staffDataMap.get(s.staffId)?.schedules.push(s));
 
-      // Gom nhóm OT đã duyệt
+      // Group approved OT
       const approvedOtMap = new Map<string, OtRequestEntity>();
       approvedOtRequests.forEach((ot) => {
         approvedOtMap.set(`${ot.staffId}-${ot.date}`, ot);
@@ -149,8 +151,7 @@ export class PayrollService {
         for (const [date, dailyAttendances] of Object.entries(
           attendancesByDate,
         )) {
-          console.log(` -> Xử lý ngày: ${date}`);
-          console.log(`\n--- Ngày ${date} ---`); // Log bắt đầu ngày
+          console.log(`\n--- Ngày ${date} ---`); // Log start of day
           const firstCheckIn = dailyAttendances.find(
             (a) => a.type === AttendanceType.CHECK_IN,
           );
@@ -158,19 +159,20 @@ export class PayrollService {
             .reverse()
             .find((a) => a.type === AttendanceType.CHECK_OUT);
 
-          if (!firstCheckIn || !lastCheckOut) {
-            console.log(' -> Thiếu CheckIn hoặc CheckOut.');
-            continue;
-          }
-
           // Initialize daily variables
-          let dailyPay = 0;
+          let dailyStandardPay = 0; // Standard pay for the day
           let potentialOtMinutes = 0;
           const workBlocks = [];
 
           if (firstCheckIn && lastCheckOut) {
-            const checkInDt = DateTime.fromJSDate(firstCheckIn.timestamp);
-            const checkOutDt = DateTime.fromJSDate(lastCheckOut.timestamp);
+            // **APPLY TIMEZONE RIGHT AWAY**
+            const checkInDt = DateTime.fromJSDate(
+              firstCheckIn.timestamp,
+            ).setZone(VN_TIMEZONE);
+            const checkOutDt = DateTime.fromJSDate(
+              lastCheckOut.timestamp,
+            ).setZone(VN_TIMEZONE);
+
             const totalActualWorkInterval = Interval.fromDateTimes(
               checkInDt,
               checkOutDt,
@@ -186,14 +188,17 @@ export class PayrollService {
             console.log(
               ` -> Số lịch trình trong ngày: ${dailySchedules.length}`,
             );
+
             if (dailySchedules.length > 0) {
               for (const schedule of dailySchedules) {
                 let scheduleInterval: Interval | null = null;
                 let rateType: string | undefined;
 
+                // **APPLY TIMEZONE WHEN CREATING SCHEDULE INTERVALS**
                 if (schedule.classSession) {
                   const start = DateTime.fromISO(
                     `${schedule.date}T${schedule.classSession.startTime}`,
+                    { zone: VN_TIMEZONE },
                   );
                   const end = start.plus({ minutes: 90 });
                   scheduleInterval = Interval.fromDateTimes(start, end);
@@ -206,9 +211,11 @@ export class PayrollService {
                 } else if (schedule.shift) {
                   const start = DateTime.fromISO(
                     `${schedule.date}T${schedule.shift.startTime}`,
+                    { zone: VN_TIMEZONE },
                   );
                   const end = DateTime.fromISO(
                     `${schedule.date}T${schedule.shift.endTime}`,
+                    { zone: VN_TIMEZONE },
                   );
                   scheduleInterval = Interval.fromDateTimes(start, end);
                   rateType = 'part-time';
@@ -221,37 +228,35 @@ export class PayrollService {
                   totalScheduledDuration = totalScheduledDuration.plus(
                     scheduleInterval.toDuration(),
                   );
+                  // Calculate intersection (standard work block)
                   const intersection =
                     totalActualWorkInterval.intersection(scheduleInterval);
                   if (intersection) {
-                    // **FIXED HERE**
+                    // **FIXED**: Use .as('minutes')
                     const durationMins = intersection
                       .toDuration()
-                      .as('minutes'); // Sửa lỗi ở đây
+                      .as('minutes');
                     console.log(
                       `    -> Giao với lịch: ${intersection.start?.toFormat('HH:mm')} - ${intersection.end?.toFormat('HH:mm')} (${durationMins} phút)`,
                     );
-                    workBlocks.push({
-                      type: rateType,
-                      duration: intersection.toDuration().as('minutes'),
-                    });
+                    workBlocks.push({ type: rateType, duration: durationMins });
                   }
                 }
               } // End schedule loop
 
+              // Calculate potential OT = Actual - Scheduled
               let potentialOtDuration = totalActualDuration.minus(
                 totalScheduledDuration,
               );
               if (potentialOtDuration.as('minutes') < 0) {
                 potentialOtDuration = Duration.fromMillis(0);
               }
-
               console.log(
                 ` -> Tổng giờ theo lịch: ${totalScheduledDuration.toFormat('hh:mm:ss')}`,
               );
               console.log(
                 ` -> Giờ OT tiềm năng: ${potentialOtDuration.toFormat('hh:mm:ss')}`,
-              ); // LOG QUAN TRỌNG
+              );
 
               const otMinutesDetected = potentialOtDuration.as('minutes');
               if (otMinutesDetected > 1) {
@@ -262,7 +267,7 @@ export class PayrollService {
                   {
                     staffId: staff.id,
                     date: date,
-                    detectedDuration: potentialOtDuration.toFormat('hh:mm:ss'),
+                    detectedDuration: potentialOtDuration.toFormat('hh:mm:ss'), // Correct format
                     status: OtRequestStatus.PENDING,
                   },
                   ['staffId', 'date'],
@@ -273,15 +278,13 @@ export class PayrollService {
               }
               potentialOtMinutes = Math.round(otMinutesDetected);
             } else if (staff.rates && staff.rates['part-time']) {
-              const durationMins = totalActualDuration.as('minutes'); // Sửa lỗi ở đây
+              // NO SCHEDULE (Free Part-time)
+              // **FIXED**: Use .as('minutes')
+              const durationMins = totalActualDuration.as('minutes');
               console.log(
                 ` -> Không có lịch, tính là Part-time: ${durationMins} phút`,
               );
-              // **FIXED HERE**
-              workBlocks.push({
-                type: 'part-time',
-                duration: totalActualDuration.as('minutes'),
-              });
+              workBlocks.push({ type: 'part-time', duration: durationMins });
               potentialOtMinutes = 0;
             }
           } // End if (firstCheckIn && lastCheckOut)
@@ -294,20 +297,20 @@ export class PayrollService {
               0;
             if (rate > 0 && block.duration > 0) {
               const pay = (block.duration / 60) * rate;
-              dailyPay += pay;
+              dailyStandardPay += pay; // Accumulate standard pay
               block.pay = Math.round(pay);
             } else {
               block.pay = 0;
             }
           });
           console.log(' -> Giờ làm chuẩn (Work Blocks):', workBlocks);
-          console.log(` -> Tiền lương giờ chuẩn: ${dailyPay}`);
+          console.log(` -> Tiền lương giờ chuẩn: ${dailyStandardPay}`);
 
           // --- CALCULATE APPROVED OT PAY ---
           const approvedOt = approvedOtMap.get(`${staff.id}-${date}`);
           let otPay = 0;
           let approvedOtMinutes = 0;
-          let otMultiplierUsed = 1;
+          let otMultiplierUsed = 1.5;
 
           if (approvedOt && approvedOt.approvedDuration) {
             try {
@@ -315,7 +318,7 @@ export class PayrollService {
                 (s) => s.date === date && s.shift,
               );
               otMultiplierUsed =
-                relevantShiftSchedule?.shift?.otMultiplier || 1;
+                relevantShiftSchedule?.shift?.otMultiplier || 1.5;
 
               let durationObj: Duration;
               if (
@@ -344,6 +347,7 @@ export class PayrollService {
               const baseRateForOt =
                 (staff.rates && staff.rates['part-time']) ||
                 Math.max(0, ...Object.values(staff.rates || { default: 0 }));
+
               if (baseRateForOt > 0) {
                 otPay =
                   (approvedOtMinutes / 60) * baseRateForOt * otMultiplierUsed;
@@ -361,28 +365,35 @@ export class PayrollService {
               );
             }
           }
-
           if (approvedOt) {
             console.log(
               ` -> OT đã duyệt: ${approvedOtMinutes} phút, Tiền OT: ${otPay}`,
             );
+          } else {
+            console.log(
+              `    -> Không tìm thấy OT đã duyệt hoặc approvedDuration rỗng.`,
+            );
           }
           // --- END CALCULATE APPROVED OT PAY ---
 
-          totalPay += dailyPay + otPay;
+          totalPay += dailyStandardPay + otPay; // Add both standard and OT pay to total
           dailyBreakdown.push({
             date,
             checkIn:
-              firstCheckIn?.timestamp.toLocaleTimeString('vi-VN') || 'N/A',
+              firstCheckIn?.timestamp.toLocaleTimeString('vi-VN', {
+                timeZone: VN_TIMEZONE,
+              }) || 'N/A',
             checkOut:
-              lastCheckOut?.timestamp.toLocaleTimeString('vi-VN') || 'N/A',
+              lastCheckOut?.timestamp.toLocaleTimeString('vi-VN', {
+                timeZone: VN_TIMEZONE,
+              }) || 'N/A',
             blocks: workBlocks,
             potentialOtMinutes,
             approvedOtMinutes: Math.round(approvedOtMinutes),
             otPay: Math.round(otPay),
-            dailyPay: Math.round(dailyPay + otPay), // Total for the day
+            dailyPay: Math.round(dailyStandardPay + otPay), // Total for the day
           });
-          console.log(` -> Tổng tiền ngày: ${dailyPay + otPay}`);
+          console.log(` -> Tổng tiền ngày: ${dailyStandardPay + otPay}`);
         } // End date loop
 
         // --- Handle days with only approved OT ---
@@ -390,14 +401,14 @@ export class PayrollService {
           if (ot.staffId === staff.id && !attendancesByDate[ot.date]) {
             let otPay = 0;
             let approvedOtMinutes = 0;
-            let otMultiplierUsed = 1;
+            let otMultiplierUsed = 1.5;
             if (ot.approvedDuration) {
               try {
                 const relevantShiftSchedule = staffData?.schedules.find(
                   (s) => s.date === ot.date && s.shift,
                 );
                 otMultiplierUsed =
-                  relevantShiftSchedule?.shift?.otMultiplier || 1;
+                  relevantShiftSchedule?.shift?.otMultiplier || 1.5;
 
                 let durationObj: Duration;
                 if (
@@ -479,7 +490,7 @@ export class PayrollService {
     return attendances.reduce((acc, curr) => {
       // Use Luxon to handle timezone correctly when determining the date
       const date = DateTime.fromJSDate(curr.timestamp, {
-        zone: 'Asia/Ho_Chi_Minh',
+        zone: VN_TIMEZONE,
       }).toISODate();
       if (!acc[date]) {
         acc[date] = [];

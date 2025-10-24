@@ -49,14 +49,14 @@ export class StaffAttendanceService {
 
     // 2. Tìm bản ghi chấm công cuối cùng trong ngày (dùng khoảng thời gian)
     const lastAttendance = await this.attendanceRepository.findOne({
-        where: {
-            staffId: staffId,
-            // Sử dụng Date objects đã chuẩn hóa theo múi giờ VN
-            timestamp: MoreThanOrEqual(startOfDay) && LessThan(endOfDay),
-        },
-        order: {
-            timestamp: 'DESC',
-        },
+      where: {
+        staffId: staffId,
+        // Sử dụng Date objects đã chuẩn hóa theo múi giờ VN
+        timestamp: MoreThanOrEqual(startOfDay) && LessThan(endOfDay),
+      },
+      order: {
+        timestamp: 'DESC',
+      },
     });
 
     // 3. Xử lý logic check-in/check-out
@@ -86,16 +86,18 @@ export class StaffAttendanceService {
         await this.attendanceRepository.save(newCheckOut);
         return {
           status: 'checked_out',
-           // Hiển thị giờ VN từ nowLuxon
+          // Hiển thị giờ VN từ nowLuxon
           message: `Check-out thành công lúc ${nowLuxon.toFormat('HH:mm:ss')}`,
           timestamp: nowForDb,
           staff: { fullName: staff.fullName },
         };
       } else {
         // Lấy giờ check-in cũ và format đúng múi giờ VN
-        const checkInTimeFormatted = DateTime.fromJSDate(lastAttendance.timestamp)
-                                            .setZone(VN_TIMEZONE)
-                                            .toFormat('HH:mm:ss');
+        const checkInTimeFormatted = DateTime.fromJSDate(
+          lastAttendance.timestamp,
+        )
+          .setZone(VN_TIMEZONE)
+          .toFormat('HH:mm:ss');
         return {
           status: 'confirm_checkout',
           message: `Bạn đã check-in lúc ${checkInTimeFormatted}. Bạn có muốn check-out bây giờ không?`,
