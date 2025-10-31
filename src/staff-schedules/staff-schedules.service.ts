@@ -289,4 +289,38 @@ export class StaffSchedulesService {
       },
     );
   }
+
+  async findTodayTeachingSchedules(staffId: number): Promise<any[]> {
+    // Kiểu trả về là mảng bất kỳ
+    const today = DateTime.now().setZone(VN_TIMEZONE).toISODate();
+
+    const results = await this.scheduleRepository
+      .createQueryBuilder('schedule')
+      .leftJoin('schedule.classSession', 'classSession')
+      .leftJoin('classSession.class', 'class')
+
+      // --- THAY ĐỔI: Sử dụng .select() để chọn các cột cụ thể ---
+      .select([
+        'schedule.date AS date', // Lấy cột 'date' từ bảng 'schedule'
+        'class.className AS "className"', // Lấy 'className' từ bảng 'class'
+        'class.classCode AS "classCode"', // Lấy 'classCode' từ bảng 'class'
+        'classSession.startTime AS "startTime"', // Lấy 'startTime' để sắp xếp
+      ])
+
+      .where('schedule.staffId = :staffId', { staffId })
+      .andWhere('schedule.date = :today', { today })
+      .andWhere('schedule.classSessionId IS NOT NULL')
+
+      .orderBy('"startTime"', 'ASC') // Sắp xếp theo alias 'startTime'
+
+      // --- THAY ĐỔI: Dùng .getRawMany() ---
+      .getRawMany(); // Trả về kết quả thô (raw JSON) thay vì
+
+    // Xử lý để loại bỏ startTime nếu bạn không cần nó trong response cuối cùng
+    return results.map((item) => ({
+      date: item.date,
+      className: item.className,
+      classCode: item.classCode,
+    }));
+  }
 }

@@ -67,4 +67,27 @@ export class StaffSchedulesController {
   bulkAssignSession(@Body() dto: BulkAssignDto) {
     return this.staffSchedulesService.bulkAssignSession(dto);
   }
+
+  @Get('staff/:staffId/today-teaching')
+  async findTodayTeachingSchedulesForStaff(
+    @Param('staffId', ParseIntPipe) staffId: number,
+  ) {
+    const schedules =
+      this.staffSchedulesService.findTodayTeachingSchedules(staffId);
+    const discordMessage = (await schedules)
+      .map((schedule) => {
+        const classSession = schedule.classSession;
+        if (!classSession) {
+          return ``;
+        }
+        return `- ${classSession.class.className} (${classSession.class.classCode}) lúc ${classSession.startTime}`;
+      })
+      .join('\n');
+
+    if (discordMessage.length > 0) {
+      return `Lịch dạy hôm nay của bạn:\n` + discordMessage;
+    } else {
+      return `Bạn không có lịch dạy/trợ giảng ngày hôm nay`;
+    }
+  }
 }
