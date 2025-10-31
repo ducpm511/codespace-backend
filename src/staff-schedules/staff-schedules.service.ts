@@ -1,17 +1,20 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between, In, Not } from 'typeorm';
 import { StaffScheduleEntity } from '../entities/staff-schedule.entity';
 import { CreateStaffScheduleDto } from './dto/create-staff-schedule.dto';
-import { DateTime } from 'luxon';
-import { BulkAssignDto } from './dto/bulk-asign.dto';
+import { DateTime, Interval } from 'luxon';
+import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { ClassSessionEntity } from 'src/entities/class-session.entity';
 import { UpdateStaffScheduleDto } from './dto/update-staff-schedule.dto';
+import { ShiftEntity } from 'src/entities/shift.entity';
 
+const VN_TIMEZONE = 'Asia/Ho_Chi_Minh';
 @Injectable()
 export class StaffSchedulesService {
   constructor(
@@ -19,6 +22,8 @@ export class StaffSchedulesService {
     private readonly scheduleRepository: Repository<StaffScheduleEntity>,
     @InjectRepository(ClassSessionEntity)
     private readonly sessionRepository: Repository<ClassSessionEntity>,
+    @InjectRepository(ShiftEntity)
+    private readonly shiftRepository: Repository<ShiftEntity>,
   ) {}
 
   async create(dto: CreateStaffScheduleDto): Promise<StaffScheduleEntity> {
@@ -74,94 +79,194 @@ export class StaffSchedulesService {
     toDate: string;
     daysOfWeek: number[];
   }): Promise<{ created: StaffScheduleEntity[]; skipped: string[] }> {
-    // Thay đổi kiểu trả về
     const { staffId, shiftId, fromDate, toDate, daysOfWeek } = dto;
+
+    // 1. Lấy thông tin của ca làm việc mới để biết giờ
+    const newShift = await this.shiftRepository.findOneBy({ id: shiftId });
+    if (!newShift) {
+      throw new NotFoundException(
+        `Không tìm thấy ca làm việc với ID ${shiftId}`,
+      );
+    }
+
+    // 2. Lấy tất cả lịch trình hiện có của nhân viên trong khoảng thời gian
+    const existingSchedules = await this.scheduleRepository.find({
+      where: {
+        staffId: staffId,
+        date: Between(fromDate, toDate),
+      },
+      relations: ['shift', 'classSession'], // Lấy đủ thông tin để tính giờ
+    });
+
     const schedulesToCreate: Partial<StaffScheduleEntity>[] = [];
     const skippedDates: string[] = []; // Lưu các ngày bị bỏ qua do trùng lịch
 
-    // 1. Lấy tất cả lịch trình hiện có của nhân viên trong khoảng thời gian
-    // const existingSchedules = await this.scheduleRepository.find({
-    //   where: {
-    //     staffId: staffId,
-    //     date: Between(fromDate, toDate),
-    //   },
-    //   select: ['date'], // Chỉ cần lấy ngày để kiểm tra
-    // });
-    // const existingDates = new Set(existingSchedules.map((s) => s.date)); // Dùng Set để kiểm tra nhanh
-
-    // 2. Lặp qua các ngày để tạo lịch mới
     let currentDate = DateTime.fromISO(fromDate);
     const endDate = DateTime.fromISO(toDate);
 
+    // 3. Lặp qua các ngày để tạo lịch mới
     while (currentDate <= endDate) {
       const dateStr = currentDate.toISODate();
       const isoWeekday = currentDate.weekday;
       const jsWeekday = isoWeekday % 7;
 
-      // Kiểm tra xem ngày này có thuộc các ngày được chọn VÀ chưa có lịch nào khác
       if (daysOfWeek.includes(jsWeekday)) {
-        // if (existingDates.has(dateStr)) {
-        //   // Nếu ngày đã có lịch -> thêm vào danh sách bỏ qua
-        //   skippedDates.push(dateStr);
-        // } else {
-        //   // Nếu ngày trống -> thêm vào danh sách sẽ tạo
-        //   schedulesToCreate.push({ staffId, shiftId, date: dateStr });
-        // }
-        schedulesToCreate.push({ staffId, shiftId, date: dateStr });
+        // Tạo khoảng thời gian của ca làm việc MỚI
+        const newShiftStart = DateTime.fromISO(
+          `${dateStr}T${newShift.startTime}`,
+          { zone: VN_TIMEZONE },
+        );
+        const newShiftEnd = DateTime.fromISO(`${dateStr}T${newShift.endTime}`, {
+          zone: VN_TIMEZONE,
+        });
+        const newShiftInterval = Interval.fromDateTimes(
+          newShiftStart,
+          newShiftEnd,
+        );
+
+        // Kiểm tra xem ca mới này có trùng giờ với lịch nào đã có vào ngày này không
+        const isOverlapping = existingSchedules.some((existing) => {
+          if (existing.date !== dateStr) return false; // Chỉ xét ngày hiện tại
+
+          let existingInterval: Interval | null = null;
+          if (existing.classSession) {
+            // Áp dụng rule 120 phút cho buổi dạy
+            const start = DateTime.fromISO(
+              `${existing.date}T${existing.classSession.startTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            existingInterval = Interval.fromDateTimes(
+              start.minus({ minutes: 15 }),
+              start.plus({ minutes: 105 }),
+            ); // 90 + 15
+          } else if (existing.shift) {
+            const start = DateTime.fromISO(
+              `${existing.date}T${existing.shift.startTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            const end = DateTime.fromISO(
+              `${existing.date}T${existing.shift.endTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            existingInterval = Interval.fromDateTimes(start, end);
+          }
+
+          return existingInterval
+            ? newShiftInterval.overlaps(existingInterval)
+            : false;
+        });
+
+        if (isOverlapping) {
+          skippedDates.push(dateStr);
+        } else {
+          schedulesToCreate.push({
+            staffId,
+            shiftId,
+            date: dateStr,
+            roleKey: 'part-time',
+          }); // Gán roleKey 'part-time'
+        }
       }
       currentDate = currentDate.plus({ days: 1 });
     }
 
-    // 3. Lưu các lịch hợp lệ
+    // 4. Lưu các lịch hợp lệ
     if (schedulesToCreate.length > 0) {
       const created = await this.scheduleRepository.save(schedulesToCreate);
       return { created, skipped: skippedDates };
     } else {
-      // Nếu không có lịch nào được tạo (do trùng hết)
       return { created: [], skipped: skippedDates };
     }
   }
   async bulkAssignSession(dto: BulkAssignDto): Promise<StaffScheduleEntity[]> {
     const { classSessionId, assignments } = dto;
 
+    // 1. Lấy thông tin buổi học và tính khung giờ 120 phút
+    const session = await this.sessionRepository.findOneBy({
+      id: classSessionId,
+    });
+    if (!session) {
+      throw new NotFoundException(
+        `Không tìm thấy buổi học với ID ${classSessionId}`,
+      );
+    }
+    const sessionDateStr = DateTime.fromJSDate(session.sessionDate).toISODate();
+    if (!sessionDateStr) {
+      throw new Error('Không thể xác định ngày từ buổi học.');
+    }
+
+    const newSessionActualStart = DateTime.fromISO(
+      `${sessionDateStr}T${session.startTime}`,
+      { zone: VN_TIMEZONE },
+    );
+    const newSessionPaidStart = newSessionActualStart.minus({ minutes: 15 });
+    const newSessionPaidEnd = newSessionActualStart.plus({ minutes: 90 + 15 });
+    const newSessionInterval = Interval.fromDateTimes(
+      newSessionPaidStart,
+      newSessionPaidEnd,
+    );
+
+    // 2. Kiểm tra trùng lặp cho TẤT CẢ nhân viên trong danh sách gán
+    const staffIdsToCheck = assignments.map((a) => a.staffId);
+    if (staffIdsToCheck.length > 0) {
+      // Tìm tất cả lịch trình (ca + buổi) của các nhân viên này VÀO NGÀY ĐÓ
+      // loại trừ chính buổi học này (để cho phép cập nhật)
+      const existingSchedules = await this.scheduleRepository.find({
+        where: {
+          staffId: In(staffIdsToCheck),
+          date: sessionDateStr,
+          classSessionId: Not(classSessionId), // Loại trừ chính buổi học này
+        },
+        relations: ['staff', 'shift', 'classSession'],
+      });
+
+      for (const assignment of assignments) {
+        const staffExistingSchedules = existingSchedules.filter(
+          (s) => s.staffId === assignment.staffId,
+        );
+
+        for (const existing of staffExistingSchedules) {
+          let existingInterval: Interval | null = null;
+          if (existing.classSession) {
+            // Áp dụng rule 120 phút
+            const start = DateTime.fromISO(
+              `${existing.date}T${existing.classSession.startTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            existingInterval = Interval.fromDateTimes(
+              start.minus({ minutes: 15 }),
+              start.plus({ minutes: 105 }),
+            );
+          } else if (existing.shift) {
+            // Lịch ca làm
+            const start = DateTime.fromISO(
+              `${existing.date}T${existing.shift.startTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            const end = DateTime.fromISO(
+              `${existing.date}T${existing.shift.endTime}`,
+              { zone: VN_TIMEZONE },
+            );
+            existingInterval = Interval.fromDateTimes(start, end);
+          }
+
+          if (
+            existingInterval &&
+            newSessionInterval.overlaps(existingInterval)
+          ) {
+            const staffName =
+              existing.staff?.fullName || `ID ${assignment.staffId}`;
+            throw new ConflictException(
+              `Nhân viên ${staffName} đã có lịch trình khác bị trùng giờ vào ngày ${sessionDateStr}.`,
+            );
+          }
+        }
+      }
+    }
+
+    // 3. Nếu không có trùng lặp, tiến hành xóa cũ, tạo mới
     return this.scheduleRepository.manager.transaction(
       async (transactionalEntityManager) => {
-        const session = await transactionalEntityManager.findOneBy(
-          ClassSessionEntity,
-          { id: classSessionId },
-        );
-        if (!session) {
-          throw new NotFoundException(
-            `Không tìm thấy buổi học với ID ${classSessionId}`,
-          );
-        }
-        let sessionDateStr: string | null = null;
-        try {
-          if (session.sessionDate instanceof Date) {
-            // Nếu là Date object, dùng fromJSDate
-            sessionDateStr = DateTime.fromJSDate(
-              session.sessionDate,
-            ).toISODate();
-          } else if (typeof session.sessionDate === 'string') {
-            // Nếu là string (vd: '2025-10-22'), dùng fromISO
-            sessionDateStr = DateTime.fromISO(session.sessionDate).toISODate();
-          }
-        } catch (parseError) {
-          // Bắt lỗi nếu cả hai cách parse đều không thành công
-          console.error(
-            'Lỗi parse ngày:',
-            parseError,
-            'Giá trị gốc:',
-            session.sessionDate,
-          );
-          throw new Error('Định dạng ngày của buổi học không hợp lệ.');
-        }
-
-        // Kiểm tra lại sau khi parse
-        if (!sessionDateStr) {
-          throw new Error('Không thể xác định ngày từ buổi học.');
-        }
-
         await transactionalEntityManager.delete(StaffScheduleEntity, {
           classSessionId,
         });

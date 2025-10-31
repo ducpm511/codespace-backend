@@ -226,13 +226,15 @@ export class PayrollService {
                 let priority = 0;
 
                 if (schedule.classSession) {
-                  const start = DateTime.fromISO(
+                  const actualStart = DateTime.fromISO(
                     `${schedule.date}T${schedule.classSession.startTime}`,
                     { zone: VN_TIMEZONE },
                   );
+                  const paidStart = actualStart.minus({ minutes: 15 });
+                  const paidEnd = actualStart.plus({ minutes: 90 + 15 });
                   // Use a fixed duration for class sessions for simplicity, adjust if needed
-                  const end = start.plus({ minutes: 90 });
-                  scheduleInterval = Interval.fromDateTimes(start, end);
+
+                  scheduleInterval = Interval.fromDateTimes(paidStart, paidEnd);
                   rateType = schedule.roleKey || undefined; // Use assigned role key
                   priority = ROLE_PRIORITY[rateType || ''] || 0;
                   console.log(

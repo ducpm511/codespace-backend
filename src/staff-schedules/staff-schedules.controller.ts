@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { StaffSchedulesService } from './staff-schedules.service';
 import { CreateStaffScheduleDto } from './dto/create-staff-schedule.dto';
-import { BulkAssignDto } from './dto/bulk-asign.dto';
+import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { UpdateStaffScheduleDto } from './dto/update-staff-schedule.dto';
 
 @Controller('staff-schedules')
