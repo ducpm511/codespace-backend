@@ -74,18 +74,15 @@ export class StaffSchedulesController {
   ) {
     const schedules =
       this.staffSchedulesService.findTodayTeachingSchedules(staffId);
+    console.log('Schedules for today:', await schedules);
     const discordMessage = (await schedules)
       .map((schedule) => {
-        const classSession = schedule.classSession;
-        if (!classSession) {
-          return ``;
-        }
-        return `- ${classSession.class.className} (${classSession.class.classCode}) lúc ${classSession.startTime}`;
+        return `- ${schedule.className} (${schedule.classCode}) lúc ${schedule.time}`;
       })
       .join('\n');
 
     if (discordMessage.length > 0) {
-      return `Lịch dạy hôm nay của bạn:\n` + discordMessage;
+      return `Lịch dạy/trợ giảng hôm nay của bạn:\n` + discordMessage;
     } else {
       return `Bạn không có lịch dạy/trợ giảng ngày hôm nay`;
     }

@@ -190,7 +190,24 @@ export class StaffSchedulesService {
         `Không tìm thấy buổi học với ID ${classSessionId}`,
       );
     }
-    const sessionDateStr = DateTime.fromJSDate(session.sessionDate).toISODate();
+    let sessionDateStr: string | null = null;
+    try {
+      if (session.sessionDate instanceof Date) {
+        // Nếu là Date object, dùng fromJSDate
+        sessionDateStr = DateTime.fromJSDate(session.sessionDate).toISODate();
+      } else if (typeof session.sessionDate === 'string') {
+        // Nếu là string (vd: '2025-10-22' hoặc '2025-10-22T17:00:00.000Z'), dùng fromISO
+        sessionDateStr = DateTime.fromISO(session.sessionDate).toISODate();
+      }
+    } catch (parseError) {
+      console.error(
+        'Lỗi parse ngày:',
+        parseError,
+        'Giá trị gốc:',
+        session.sessionDate,
+      );
+      throw new Error('Định dạng ngày của buổi học không hợp lệ.');
+    }
     if (!sessionDateStr) {
       throw new Error('Không thể xác định ngày từ buổi học.');
     }
@@ -317,8 +334,9 @@ export class StaffSchedulesService {
       .getRawMany(); // Trả về kết quả thô (raw JSON) thay vì
 
     // Xử lý để loại bỏ startTime nếu bạn không cần nó trong response cuối cùng
+    console.log('Kết quả truy vấn thô:', results);
     return results.map((item) => ({
-      date: item.date,
+      time: item.startTime,
       className: item.className,
       classCode: item.classCode,
     }));
