@@ -200,6 +200,35 @@ export class PayrollService {
               checkInDt,
               checkOutDt,
             );
+
+            const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
+              zone: VN_TIMEZONE,
+            });
+            const lunchEnd = DateTime.fromISO(`${date}T13:15:00`, {
+              zone: VN_TIMEZONE,
+            }); // Sửa 14:00 thành 13:15
+            const lunchInterval = Interval.fromDateTimes(lunchStart, lunchEnd);
+
+            // "Cắt" khoảng nghỉ trưa ra khỏi tổng thời gian làm
+            const payableWorkIntervals =
+              totalActualWorkInterval.difference(lunchInterval);
+
+            let totalPayableDuration = Duration.fromMillis(0);
+            payableWorkIntervals.forEach((interval) => {
+              totalPayableDuration = totalPayableDuration.plus(
+                interval.toDuration(),
+              );
+            });
+
+            console.log(
+              ` -> CheckIn: ${checkInDt.toFormat('HH:mm:ss')}, CheckOut: ${checkOutDt.toFormat('HH:mm:ss')}, Tổng Thực tế: ${totalActualWorkInterval.toDuration().toFormat('hh:mm:ss')}`,
+            );
+            console.log(
+              ` -> Nghỉ trưa (nếu có): ${totalActualWorkInterval.intersection(lunchInterval)?.toDuration().toFormat('hh:mm:ss') || '00:00:00'}`,
+            );
+            console.log(
+              ` -> Thời gian thực tính (đã trừ nghỉ trưa): ${totalPayableDuration.toFormat('hh:mm:ss')}`,
+            );
             const totalActualDuration = totalActualWorkInterval.toDuration();
             console.log(
               ` -> CheckIn: ${checkInDt.toFormat('HH:mm:ss')}, CheckOut: ${checkOutDt.toFormat('HH:mm:ss')}, Tổng Thực tế: ${totalActualDuration.toFormat('hh:mm:ss')}`,
@@ -268,21 +297,23 @@ export class PayrollService {
                   totalScheduledDuration = totalScheduledDuration.plus(
                     scheduleInterval.toDuration(),
                   );
-                  const intersection =
-                    totalActualWorkInterval.intersection(scheduleInterval);
-                  if (intersection && intersection.isValid) {
-                    const durationMins = intersection
-                      .toDuration()
-                      .as('minutes');
-                    console.log(
-                      `    -> Giao với lịch (${rateType}): ${intersection.start?.toFormat('HH:mm')} - ${intersection.end?.toFormat('HH:mm')} (${durationMins} phút)`,
-                    );
-                    potentialIntersections.push({
-                      interval: intersection,
-                      rateType,
-                      priority,
-                    });
-                  }
+                  payableWorkIntervals.forEach((payableInterval) => {
+                    const intersection =
+                      payableInterval.intersection(scheduleInterval);
+                    if (intersection && intersection.isValid) {
+                      const durationMins = intersection
+                        .toDuration()
+                        .as('minutes');
+                      console.log(
+                        `    -> Giao với lịch (${rateType}): ${intersection.start?.toFormat('HH:mm')} - ${intersection.end?.toFormat('HH:mm')} (${durationMins} phút)`,
+                      );
+                      potentialIntersections.push({
+                        interval: intersection,
+                        rateType,
+                        priority,
+                      });
+                    }
+                  });
                 }
               } // End schedule loop
 

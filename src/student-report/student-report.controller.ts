@@ -10,6 +10,8 @@ import {
   UploadedFile,
   Query,
   Patch,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { StudentReportService } from './student-report.service';
 import { CreateStudentReportDto } from './dto/create-student-report.dto';
@@ -35,6 +37,7 @@ export class StudentReportController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.reportService.remove(+id);
   }

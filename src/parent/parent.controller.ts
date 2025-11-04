@@ -9,6 +9,8 @@ import {
   UsePipes,
   ValidationPipe,
   UseGuards,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ParentService } from './parent.service';
 import { CreateParentDto } from './dto/create-parent.dto';
@@ -44,6 +46,7 @@ export class ParentController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.parentService.remove(+id);
   }

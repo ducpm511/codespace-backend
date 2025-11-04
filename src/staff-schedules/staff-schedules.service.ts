@@ -244,18 +244,7 @@ export class StaffSchedulesService {
 
         for (const existing of staffExistingSchedules) {
           let existingInterval: Interval | null = null;
-          if (existing.classSession) {
-            // Áp dụng rule 120 phút
-            const start = DateTime.fromISO(
-              `${existing.date}T${existing.classSession.startTime}`,
-              { zone: VN_TIMEZONE },
-            );
-            existingInterval = Interval.fromDateTimes(
-              start.minus({ minutes: 15 }),
-              start.plus({ minutes: 105 }),
-            );
-          } else if (existing.shift) {
-            // Lịch ca làm
+          if (existing.shift) {
             const start = DateTime.fromISO(
               `${existing.date}T${existing.shift.startTime}`,
               { zone: VN_TIMEZONE },
@@ -265,17 +254,18 @@ export class StaffSchedulesService {
               { zone: VN_TIMEZONE },
             );
             existingInterval = Interval.fromDateTimes(start, end);
-          }
 
-          if (
-            existingInterval &&
-            newSessionInterval.overlaps(existingInterval)
-          ) {
-            const staffName =
-              existing.staff?.fullName || `ID ${assignment.staffId}`;
-            throw new ConflictException(
-              `Nhân viên ${staffName} đã có lịch trình khác bị trùng giờ vào ngày ${sessionDateStr}.`,
-            );
+            // Nếu trùng lặp với ca làm việc -> BÁO LỖI
+            if (
+              existingInterval &&
+              newSessionInterval.overlaps(existingInterval)
+            ) {
+              const staffName =
+                existing.staff?.fullName || `ID ${assignment.staffId}`;
+              throw new ConflictException(
+                `Nhân viên ${staffName} đã có ca làm việc (ca ${existing.shift.name}) bị trùng giờ vào ngày ${sessionDateStr}.`,
+              );
+            }
           }
         }
       }

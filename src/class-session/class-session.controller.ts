@@ -8,6 +8,8 @@ import {
   Delete,
   UsePipes,
   ValidationPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ClassSessionService } from './class-session.service';
 import { CreateClassSessionDto } from './dto/create-class-session.dto';
@@ -48,6 +50,7 @@ export class ClassSessionController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id') id: string) {
     return this.classSessionService.remove(+id);
   }
