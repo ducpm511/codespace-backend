@@ -379,15 +379,17 @@ export class PayrollService {
           const approvedOt = approvedOtMap.get(`${staff.id}-${date}`);
           let otPay = 0;
           let approvedOtMinutes = 0;
-          let otMultiplierUsed = 1.5;
 
-          if (approvedOt && approvedOt.approvedDuration) {
+          if (
+            approvedOt &&
+            approvedOt.approvedDuration &&
+            approvedOt.approvedRoleKey
+          ) {
             try {
-              const relevantShiftSchedule = staffData?.schedules.find(
-                (s) => s.date === date && s.shift,
-              );
-              otMultiplierUsed =
-                relevantShiftSchedule?.shift?.otMultiplier || 1.5;
+              const roleKey = approvedOt.approvedRoleKey;
+              const otMultiplier = approvedOt.approvedMultiplier || 1;
+
+              const baseRateForOt = (staff.rates && staff.rates[roleKey]) || 0;
 
               let durationObj: Duration;
               if (
@@ -428,18 +430,14 @@ export class PayrollService {
               }
               approvedOtMinutes = durationObj.as('minutes');
 
-              const baseRateForOt =
-                (staff.rates && staff.rates['part-time']) ||
-                Math.max(0, ...Object.values(staff.rates || { default: 0 }));
               if (baseRateForOt > 0) {
-                otPay =
-                  (approvedOtMinutes / 60) * baseRateForOt * otMultiplierUsed;
+                otPay = (approvedOtMinutes / 60) * baseRateForOt * otMultiplier;
                 console.log(
-                  ` -> Ngày ${date}: Tính ${approvedOtMinutes} phút OT, Rate cơ sở ${baseRateForOt}, Hệ số ${otMultiplierUsed}, Tiền OT: ${otPay}`,
+                  ` -> Ngày ${date}: Tính ${approvedOtMinutes} phút OT, Vai trò ${roleKey}, Rate cơ sở ${baseRateForOt}, Hệ số ${otMultiplier}, Tiền OT: ${otPay}`,
                 );
               } else {
                 this.logger.warn(
-                  `Không tìm thấy rate cơ sở để tính OT cho staff ${staff.id} ngày ${date}`,
+                  `Không tìm thấy rate cơ sở cho vai trò '${roleKey}' của staff ${staff.id} ngày ${date}`,
                 );
               }
             } catch (e) {

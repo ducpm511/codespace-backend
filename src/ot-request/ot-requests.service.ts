@@ -116,9 +116,18 @@ export class OtRequestsService {
     // Nếu duyệt, mặc định approvedDuration bằng detectedDuration
     // (Có thể thêm logic để nhận approvedDuration từ DTO nếu muốn)
     if (dto.status === OtRequestStatus.APPROVED) {
-      otRequest.approvedDuration = otRequest.detectedDuration;
+      if (!dto.approvedRoleKey) {
+        throw new BadRequestException(
+          'Vui lòng chọn vai trò (rate) để tính rate OT',
+        );
+      }
+      otRequest.approvedDuration = otRequest.detectedDuration; // Giờ duyệt = giờ phát hiện
+      otRequest.approvedRoleKey = dto.approvedRoleKey;
+      otRequest.approvedMultiplier = dto.approvedMultiplier || 1; // Lấy 1 nếu không cung cấp
     } else {
-      otRequest.approvedDuration = null; // Nếu từ chối thì không có giờ duyệt
+      otRequest.approvedDuration = null;
+      otRequest.approvedRoleKey = null;
+      otRequest.approvedMultiplier = null;
     }
 
     return this.otRequestRepo.save(otRequest);

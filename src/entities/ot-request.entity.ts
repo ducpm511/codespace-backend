@@ -42,6 +42,12 @@ export class OtRequestEntity {
   @Column({ type: 'text', nullable: true })
   notes: string; // Ghi chú của người duyệt
 
+  @Column({ type: 'varchar', nullable: true })
+  approvedRoleKey: string | null; // Ví dụ: 'part-time', 'teacher'
+
+  @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
+  approvedMultiplier: number | null; // Ví dụ: 1.5, 2.0
+
   @Column({
     type: 'enum',
     enum: OtRequestStatus,

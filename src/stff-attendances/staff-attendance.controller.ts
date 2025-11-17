@@ -24,7 +24,7 @@ import { Role } from 'src/auth/enums/role.enum';
 
 @Controller('staff-attendances')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN) // Thêm các guard cần thiết ở đây
+// Thêm các guard cần thiết ở đây
 export class StaffAttendanceController {
   constructor(
     private readonly staffAttendanceService: StaffAttendanceService,
@@ -40,6 +40,7 @@ export class StaffAttendanceController {
    * API: GET /staff-attendances/manual?staffId=1&date=2025-10-31
    */
   @Get('manual')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   // @UseGuards(...) // Nên bảo vệ endpoint này, chỉ cho admin/manager
   getForStaffByDate(@Query() query: FindAttendanceDto) {
     return this.staffAttendanceService.getForStaffByDate(
@@ -53,6 +54,7 @@ export class StaffAttendanceController {
    * API: POST /staff-attendances/manual
    */
   @Post('manual')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   // @UseGuards(...)
   createManual(@Body() dto: CreateManualAttendanceDto) {
     return this.staffAttendanceService.createManual(dto);
@@ -63,6 +65,7 @@ export class StaffAttendanceController {
    * API: PATCH /staff-attendances/manual/:id
    */
   @Patch('manual/:id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   // @UseGuards(...)
   updateManual(
     @Param('id', ParseIntPipe) id: number,
@@ -76,6 +79,7 @@ export class StaffAttendanceController {
    * API: DELETE /staff-attendances/manual/:id
    */
   @Delete('manual/:id')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   // @UseGuards(...)
   @HttpCode(HttpStatus.NO_CONTENT) // Trả về 204 khi xóa thành công
   deleteManual(@Param('id', ParseIntPipe) id: number) {
