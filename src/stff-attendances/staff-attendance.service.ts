@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThanOrEqual, LessThan } from 'typeorm';
+import { Repository, MoreThanOrEqual, LessThan, Raw } from 'typeorm';
 import {
   StaffAttendanceEntity,
   AttendanceType,
@@ -114,17 +114,26 @@ export class StaffAttendanceService {
     staffId: number,
     date: string,
   ): Promise<StaffAttendanceEntity[]> {
+    // 1. Xác định thời điểm bắt đầu ngày (00:00:00)
     const startOfDay = DateTime.fromISO(date, { zone: VN_TIMEZONE })
       .startOf('day')
       .toJSDate();
-    const endOfDay = DateTime.fromISO(date, { zone: VN_TIMEZONE })
-      .endOf('day')
+
+    // 2. Xác định thời điểm bắt đầu ngày KẾ TIẾP (00:00:00 của ngày mai)
+    const startOfNextDay = DateTime.fromISO(date, { zone: VN_TIMEZONE })
+      .plus({ days: 1 })
+      .startOf('day')
       .toJSDate();
 
+    // 3. --- SỬA LỖI TRUY VẤN TẠI ĐÂY ---
+    // Sử dụng Raw để tạo điều kiện AND cho cùng một cột
     return this.attendanceRepository.find({
       where: {
         staffId: staffId,
-        timestamp: MoreThanOrEqual(startOfDay) && LessThan(endOfDay),
+        timestamp: Raw(
+          (alias) => `${alias} >= :startOfDay AND ${alias} < :startOfNextDay`,
+          { startOfDay, startOfNextDay },
+        ),
       },
       order: {
         timestamp: 'ASC', // Sắp xếp từ sớm đến muộn
