@@ -9,12 +9,15 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 
 @Controller('shifts')
+@UseGuards(JwtAuthGuard) // Protect all routes with JwtAuthGuard
 export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 

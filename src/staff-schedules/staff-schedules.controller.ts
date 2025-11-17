@@ -9,13 +9,16 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { StaffSchedulesService } from './staff-schedules.service';
 import { CreateStaffScheduleDto } from './dto/create-staff-schedule.dto';
 import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { UpdateStaffScheduleDto } from './dto/update-staff-schedule.dto';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
 
 @Controller('staff-schedules')
+@UseGuards(JwtAuthGuard) // Protect all routes with JwtAuthGuard
 export class StaffSchedulesController {
   constructor(private readonly staffSchedulesService: StaffSchedulesService) {}
 

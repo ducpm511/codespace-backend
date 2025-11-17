@@ -10,12 +10,16 @@ import {
   ValidationPipe,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ClassSessionService } from './class-session.service';
 import { CreateClassSessionDto } from './dto/create-class-session.dto';
 import { UpdateClassSessionDto } from './dto/update-class-session.dto';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles/roles.guard';
 
 @Controller('class-sessions')
+@UseGuards(JwtAuthGuard, RolesGuard) // Bảo vệ tất cả các route bằng JwtAuthGuard
 export class ClassSessionController {
   constructor(private readonly classSessionService: ClassSessionService) {}
 

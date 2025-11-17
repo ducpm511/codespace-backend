@@ -11,6 +11,8 @@ import {
 } from '../entities/staff-attendance.entity';
 import { StaffEntity } from '../entities/staff.entity';
 import { DateTime } from 'luxon'; // Đảm bảo đã import
+import { CreateManualAttendanceDto } from './dto/create-manual-attendance.dto';
+import { UpdateManualAttendanceDto } from './dto/update-manual-attendance.dto';
 
 const VN_TIMEZONE = 'Asia/Ho_Chi_Minh'; // Định nghĩa múi giờ chuẩn
 
@@ -105,6 +107,70 @@ export class StaffAttendanceService {
           staff: { fullName: staff.fullName },
         };
       }
+    }
+  }
+
+  async getForStaffByDate(
+    staffId: number,
+    date: string,
+  ): Promise<StaffAttendanceEntity[]> {
+    const startOfDay = DateTime.fromISO(date, { zone: VN_TIMEZONE })
+      .startOf('day')
+      .toJSDate();
+    const endOfDay = DateTime.fromISO(date, { zone: VN_TIMEZONE })
+      .endOf('day')
+      .toJSDate();
+
+    return this.attendanceRepository.find({
+      where: {
+        staffId: staffId,
+        timestamp: MoreThanOrEqual(startOfDay) && LessThan(endOfDay),
+      },
+      order: {
+        timestamp: 'ASC', // Sắp xếp từ sớm đến muộn
+      },
+    });
+  }
+
+  async createManual(
+    dto: CreateManualAttendanceDto,
+  ): Promise<StaffAttendanceEntity> {
+    const staff = await this.staffRepository.findOneBy({ id: dto.staffId });
+    if (!staff) {
+      throw new NotFoundException(
+        `Không tìm thấy nhân viên với ID: ${dto.staffId}`,
+      );
+    }
+
+    const newAttendance = this.attendanceRepository.create({
+      staffId: dto.staffId,
+      timestamp: new Date(dto.timestamp), // Chuyển chuỗi ISO thành Date object
+      type: dto.type,
+    });
+    return this.attendanceRepository.save(newAttendance);
+  }
+
+  async updateManual(
+    id: number,
+    dto: UpdateManualAttendanceDto,
+  ): Promise<StaffAttendanceEntity> {
+    const attendanceRecord = await this.attendanceRepository.findOneBy({ id });
+    if (!attendanceRecord) {
+      throw new NotFoundException(
+        `Không tìm thấy bản ghi chấm công với ID: ${id}`,
+      );
+    }
+
+    attendanceRecord.timestamp = new Date(dto.timestamp); // Cập nhật giờ mới
+    return this.attendanceRepository.save(attendanceRecord);
+  }
+
+  async deleteManual(id: number): Promise<void> {
+    const result = await this.attendanceRepository.delete(id);
+    if (result.affected === 0) {
+      throw new NotFoundException(
+        `Không tìm thấy bản ghi chấm công với ID: ${id}`,
+      );
     }
   }
 }
