@@ -194,7 +194,7 @@ export class StudentsService {
     startOfWeek.setHours(0, 0, 0, 0); // Đặt về đầu ngày
 
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6); // Đặt về Thứ bảy
+    endOfWeek.setDate(startOfWeek.getDate() + 7); // Đặt về Chủ nhật
     endOfWeek.setHours(23, 59, 59, 999); // Đặt về cuối ngày
 
     const students = await this.studentsRepository.find({
