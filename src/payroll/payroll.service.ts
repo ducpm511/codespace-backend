@@ -48,7 +48,6 @@ export class PayrollService {
   }) {
     const { fromDate, toDate, staffId } = query;
     console.log('--- BẮT ĐẦU TẠO BÁO CÁO ---');
-    console.log('1. Dữ liệu đầu vào:', { fromDate, toDate, staffId });
 
     const scheduleWhereCondition = {
       date: Between(fromDate, toDate),
@@ -118,7 +117,6 @@ export class PayrollService {
         otRequestMap.set(`${ot.staffId}-${ot.date}`, ot);
       });
 
-      console.log('4. Dữ liệu đã được gom nhóm.');
       const report = [];
 
       for (const staff of staffList) {
@@ -138,7 +136,6 @@ export class PayrollService {
         for (const [date, dailyAttendances] of Object.entries(
           attendancesByDate,
         )) {
-          console.log(`\n--- Ngày ${date} ---`);
           const firstCheckIn = dailyAttendances.find(
             (a) => a.type === AttendanceType.CHECK_IN,
           );
@@ -169,7 +166,7 @@ export class PayrollService {
               checkOutDt,
             );
 
-            // --- BƯỚC 1: TRỪ GIỜ NGHỈ TRƯA ---
+            // --- TRỪ GIỜ NGHỈ TRƯA ---
             const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
               zone: VN_TIMEZONE,
             });
@@ -252,13 +249,6 @@ export class PayrollService {
                 staff.rates || {},
               );
 
-              let calculatedStandardDuration = Duration.fromMillis(0);
-              finalWorkBlocks.forEach((block) => {
-                calculatedStandardDuration = calculatedStandardDuration.plus({
-                  minutes: block.duration,
-                });
-              });
-
               // --- TÍNH OT TIỀM NĂNG ---
               let potentialOtDuration = totalPayableDuration.minus(
                 totalScheduledDuration,
@@ -269,10 +259,9 @@ export class PayrollService {
 
               const otMinutesDetected = potentialOtDuration.as('minutes');
 
-              // --- LOGIC GHI OT (ĐÃ BỎ checkInTime/checkOutTime) ---
+              // --- LOGIC GHI OT ---
               if (otMinutesDetected > 1) {
                 const existingOt = otRequestMap.get(`${staff.id}-${date}`);
-
                 if (existingOt) {
                   if (
                     existingOt.detectedDuration !==
@@ -281,7 +270,6 @@ export class PayrollService {
                     await this.otRequestRepo.update(existingOt.id, {
                       detectedDuration:
                         potentialOtDuration.toFormat('hh:mm:ss'),
-                      // ĐÃ XÓA checkInTime, checkOutTime ở đây
                     });
                   }
                 } else {
@@ -290,7 +278,6 @@ export class PayrollService {
                     date: date,
                     detectedDuration: potentialOtDuration.toFormat('hh:mm:ss'),
                     status: OtRequestStatus.PENDING,
-                    // ĐÃ XÓA checkInTime, checkOutTime ở đây
                   });
                 }
               }
@@ -373,6 +360,14 @@ export class PayrollService {
                 if (baseRateForOt > 0) {
                   otPay =
                     (approvedOtMinutes / 60) * baseRateForOt * otMultiplier;
+
+                  // --- CẬP NHẬT MỚI: THÊM BLOCK OT VÀO DANH SÁCH ---
+                  finalWorkBlocks.push({
+                    type: `OT (${roleKey})`, // Hiển thị rõ là OT vai trò gì
+                    duration: approvedOtMinutes,
+                    pay: Math.round(otPay),
+                  });
+                  // ------------------------------------------------
                 }
               }
             } catch (e) {
@@ -408,6 +403,13 @@ export class PayrollService {
           ) {
             let otPayOnly = 0;
             let approvedOtMinutesOnly = 0;
+            // Tạo mảng blocks riêng cho ngày chỉ có OT
+            const otBlocksOnly: {
+              type: string | undefined;
+              duration: number;
+              pay: number;
+            }[] = [];
+
             if (ot.approvedDuration && ot.approvedRoleKey) {
               try {
                 const roleKey = ot.approvedRoleKey;
@@ -435,6 +437,14 @@ export class PayrollService {
                 if (baseRateForOt > 0) {
                   otPayOnly =
                     (approvedOtMinutesOnly / 60) * baseRateForOt * otMultiplier;
+
+                  // --- CẬP NHẬT MỚI: THÊM BLOCK OT VÀO DANH SÁCH ---
+                  otBlocksOnly.push({
+                    type: `OT (${roleKey})`,
+                    duration: approvedOtMinutesOnly,
+                    pay: Math.round(otPayOnly),
+                  });
+                  // ------------------------------------------------
                 }
               } catch (e) {}
             }
@@ -444,7 +454,7 @@ export class PayrollService {
                 date: ot.date,
                 checkIn: 'N/A',
                 checkOut: 'N/A',
-                blocks: [],
+                blocks: otBlocksOnly, // Sử dụng blocks mới tạo
                 potentialOtMinutes: 0,
                 approvedOtMinutes: Math.round(approvedOtMinutesOnly),
                 otPay: Math.round(otPayOnly),

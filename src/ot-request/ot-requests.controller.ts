@@ -28,8 +28,14 @@ export class OtRequestsController {
 
   @Get()
   @Roles(Role.SUPER_ADMIN) // Chỉ admin/manager mới được xem
-  findAll(@Query('status') status?: OtRequestStatus) {
-    return this.otRequestsService.findAll(status);
+  findAll(
+    @Query('status') status?: OtRequestStatus,
+    @Query('staffId') staffId?: number,
+  ) {
+    const parsedStaffId = staffId
+      ? parseInt(staffId.toString(), 10)
+      : undefined;
+    return this.otRequestsService.findAll(status, parsedStaffId);
   }
 
   @Get(':id')

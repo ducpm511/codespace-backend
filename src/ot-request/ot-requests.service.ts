@@ -28,11 +28,14 @@ export class OtRequestsService {
     private readonly scheduleRepo: Repository<StaffScheduleEntity>,
   ) {}
 
-  async findAll(status?: OtRequestStatus): Promise<any[]> {
+  async findAll(status?: OtRequestStatus, staffId?: number): Promise<any[]> {
     // Trả về any[] vì đã "làm giàu"
     const where: FindOptionsWhere<OtRequestEntity> = {};
     if (status) {
       where.status = status;
+    }
+    if (staffId !== undefined) {
+      where.staffId = staffId;
     }
 
     // 1. Lấy danh sách yêu cầu OT cơ bản
