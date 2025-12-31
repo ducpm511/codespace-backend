@@ -136,6 +136,7 @@ export class PayrollService {
         for (const [date, dailyAttendances] of Object.entries(
           attendancesByDate,
         )) {
+          // Lấy thông tin hiển thị (Check-in sớm nhất và Check-out muộn nhất)
           const firstCheckIn = dailyAttendances.find(
             (a) => a.type === AttendanceType.CHECK_IN,
           );
@@ -151,22 +152,14 @@ export class PayrollService {
             pay: number;
           }[] = [];
 
-          if (firstCheckIn && lastCheckOut) {
-            const checkInDt = DateTime.fromJSDate(
-              firstCheckIn.timestamp,
-            ).setZone(VN_TIMEZONE);
-            const checkOutDt = DateTime.fromJSDate(
-              lastCheckOut.timestamp,
-            ).setZone(VN_TIMEZONE);
-
-            if (checkOutDt <= checkInDt) continue;
-
-            const totalActualWorkInterval = Interval.fromDateTimes(
-              checkInDt,
-              checkOutDt,
+          // --- LOGIC MỚI: TÍNH TOÁN DỰA TRÊN CẶP CHECK-IN/OUT ---
+          if (dailyAttendances.length >= 2) {
+            // Sắp xếp lại để đảm bảo thứ tự thời gian
+            dailyAttendances.sort(
+              (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
             );
 
-            // --- TRỪ GIỜ NGHỈ TRƯA ---
+            // Định nghĩa giờ nghỉ trưa
             const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
               zone: VN_TIMEZONE,
             });
@@ -174,16 +167,52 @@ export class PayrollService {
               zone: VN_TIMEZONE,
             });
             const lunchInterval = Interval.fromDateTimes(lunchStart, lunchEnd);
-            const payableWorkIntervals =
-              totalActualWorkInterval.difference(lunchInterval);
 
             let totalPayableDuration = Duration.fromMillis(0);
-            payableWorkIntervals.forEach((interval) => {
-              totalPayableDuration = totalPayableDuration.plus(
-                interval.toDuration(),
-              );
-            });
+            const payableWorkIntervals: Interval[] = [];
 
+            // Duyệt qua danh sách để ghép cặp (Check-in -> Check-out)
+            for (let i = 0; i < dailyAttendances.length - 1; i++) {
+              const current = dailyAttendances[i];
+              const next = dailyAttendances[i + 1];
+
+              // Tìm cặp: Hiện tại là Check-in VÀ Kế tiếp là Check-out
+              if (
+                current.type === AttendanceType.CHECK_IN &&
+                next.type === AttendanceType.CHECK_OUT
+              ) {
+                const inTime = DateTime.fromJSDate(current.timestamp).setZone(
+                  VN_TIMEZONE,
+                );
+                const outTime = DateTime.fromJSDate(next.timestamp).setZone(
+                  VN_TIMEZONE,
+                );
+
+                if (outTime > inTime) {
+                  const workInterval = Interval.fromDateTimes(inTime, outTime);
+
+                  // Trừ giờ nghỉ trưa cho CẶP NÀY (nếu có dính)
+                  // difference trả về mảng các khoảng thời gian không trùng với giờ nghỉ trưa
+                  const parts = workInterval.difference(lunchInterval);
+
+                  parts.forEach((part) => {
+                    totalPayableDuration = totalPayableDuration.plus(
+                      part.toDuration(),
+                    );
+                    payableWorkIntervals.push(part); // Lưu lại để dùng tính giao thoa với lịch
+                  });
+
+                  // Nhảy cóc qua log check-out vừa dùng để tránh lặp
+                  i++;
+                }
+              }
+            }
+
+            console.log(
+              ` -> Ngày ${date}: Tổng giờ làm thực tế (đã trừ trưa): ${totalPayableDuration.toFormat('hh:mm')}`,
+            );
+
+            // --- BẮT ĐẦU TÍNH TOÁN SO KHỚP VỚI LỊCH ---
             const dailySchedules =
               staffData?.schedules.filter((s) => s.date === date) || [];
             let totalScheduledDuration = Duration.fromMillis(0);
@@ -230,6 +259,7 @@ export class PayrollService {
                   totalScheduledDuration = totalScheduledDuration.plus(
                     scheduleInterval.toDuration(),
                   );
+                  // So khớp schedule với các khoảng thời gian làm việc thực tế (payableWorkIntervals)
                   payableWorkIntervals.forEach((payableInterval) => {
                     const intersection =
                       payableInterval.intersection(scheduleInterval);
@@ -283,6 +313,7 @@ export class PayrollService {
               }
               potentialOtMinutes = Math.round(otMinutesDetected);
             } else if (staff.rates && staff.rates['part-time']) {
+              // Không có lịch -> Tính part-time toàn bộ
               const durationMins = totalPayableDuration.as('minutes');
               finalWorkBlocks.push({
                 type: 'part-time',
@@ -361,13 +392,12 @@ export class PayrollService {
                   otPay =
                     (approvedOtMinutes / 60) * baseRateForOt * otMultiplier;
 
-                  // --- CẬP NHẬT MỚI: THÊM BLOCK OT VÀO DANH SÁCH ---
+                  // Thêm block OT vào danh sách hiển thị
                   finalWorkBlocks.push({
-                    type: `OT (${roleKey})`, // Hiển thị rõ là OT vai trò gì
+                    type: `OT (${roleKey})`,
                     duration: approvedOtMinutes,
                     pay: Math.round(otPay),
                   });
-                  // ------------------------------------------------
                 }
               }
             } catch (e) {
@@ -403,7 +433,6 @@ export class PayrollService {
           ) {
             let otPayOnly = 0;
             let approvedOtMinutesOnly = 0;
-            // Tạo mảng blocks riêng cho ngày chỉ có OT
             const otBlocksOnly: {
               type: string | undefined;
               duration: number;
@@ -438,13 +467,11 @@ export class PayrollService {
                   otPayOnly =
                     (approvedOtMinutesOnly / 60) * baseRateForOt * otMultiplier;
 
-                  // --- CẬP NHẬT MỚI: THÊM BLOCK OT VÀO DANH SÁCH ---
                   otBlocksOnly.push({
                     type: `OT (${roleKey})`,
                     duration: approvedOtMinutesOnly,
                     pay: Math.round(otPayOnly),
                   });
-                  // ------------------------------------------------
                 }
               } catch (e) {}
             }
@@ -454,7 +481,7 @@ export class PayrollService {
                 date: ot.date,
                 checkIn: 'N/A',
                 checkOut: 'N/A',
-                blocks: otBlocksOnly, // Sử dụng blocks mới tạo
+                blocks: otBlocksOnly,
                 potentialOtMinutes: 0,
                 approvedOtMinutes: Math.round(approvedOtMinutesOnly),
                 otPay: Math.round(otPayOnly),
@@ -481,7 +508,6 @@ export class PayrollService {
     }
   }
 
-  // --- Hàm xử lý chồng chéo (GIỮ NGUYÊN) ---
   private resolveOverlappingBlocks(
     intersections: {
       interval: Interval;
@@ -563,7 +589,6 @@ export class PayrollService {
     return resultBlocks;
   }
 
-  // --- Hàm gom nhóm (GIỮ NGUYÊN) ---
   private groupAttendancesByDate(attendances: StaffAttendanceEntity[]) {
     const initialValue: Record<string, StaffAttendanceEntity[]> = {};
     return attendances.reduce((acc, curr) => {
