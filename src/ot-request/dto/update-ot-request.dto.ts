@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Min,
+  Matches,
 } from 'class-validator';
 import { OtRequestStatus } from '../../entities/ot-request.entity';
 
@@ -25,4 +26,12 @@ export class UpdateOtRequestDto {
   @IsNumber()
   @Min(1)
   approvedMultiplier?: number;
+
+  @IsOptional()
+  @IsString()
+  // Regex đơn giản cho định dạng giờ:phút (VD: 00:30, 01:30)
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, {
+    message: 'Thời gian duyệt phải đúng định dạng HH:mm (ví dụ: 00:30)',
+  })
+  approvedDuration?: string;
 }

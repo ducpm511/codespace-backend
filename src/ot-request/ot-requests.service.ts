@@ -124,7 +124,8 @@ export class OtRequestsService {
           'Vui lòng chọn vai trò (rate) để tính rate OT',
         );
       }
-      otRequest.approvedDuration = otRequest.detectedDuration; // Giờ duyệt = giờ phát hiện
+      otRequest.approvedDuration =
+        dto.approvedDuration || otRequest.detectedDuration; // Giờ duyệt = giờ phát hiện
       otRequest.approvedRoleKey = dto.approvedRoleKey;
       otRequest.approvedMultiplier = dto.approvedMultiplier || 1; // Lấy 1 nếu không cung cấp
     } else {
