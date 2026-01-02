@@ -34,4 +34,7 @@ export class UpdateOtRequestDto {
     message: 'Thời gian duyệt phải đúng định dạng HH:mm (ví dụ: 00:30)',
   })
   approvedDuration?: string;
+
+  @IsOptional()
+  breakdown?: { role: string; duration: string; multiplier: number }[];
 }

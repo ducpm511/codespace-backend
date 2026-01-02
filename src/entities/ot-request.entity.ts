@@ -55,6 +55,9 @@ export class OtRequestEntity {
   })
   status: OtRequestStatus;
 
+  @Column({ type: 'json', nullable: true })
+  breakdown: { role: string; duration: string; multiplier: number }[] | null;
+
   @ManyToOne(() => StaffEntity, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'approverId' })
   approver: StaffEntity | null;

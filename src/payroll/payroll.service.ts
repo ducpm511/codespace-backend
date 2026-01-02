@@ -151,13 +151,12 @@ export class PayrollService {
             pay: number;
           }[] = [];
 
-          // Chỉ xử lý khi có đủ dữ liệu chấm công
           if (dailyAttendances.length >= 2) {
             dailyAttendances.sort(
               (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
             );
 
-            // Giờ nghỉ trưa
+            // Định nghĩa giờ nghỉ trưa
             const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
               zone: VN_TIMEZONE,
             });
@@ -169,7 +168,7 @@ export class PayrollService {
             let totalPayableDuration = Duration.fromMillis(0);
             const payableWorkIntervals: Interval[] = [];
 
-            // 1. TÍNH TỔNG GIỜ LÀM THỰC TẾ (Đã trừ trưa)
+            // 1. TÍNH TỔNG GIỜ LÀM THỰC TẾ (SMART LUNCH DEDUCTION)
             for (let i = 0; i < dailyAttendances.length - 1; i++) {
               const current = dailyAttendances[i];
               const next = dailyAttendances[i + 1];
@@ -187,21 +186,32 @@ export class PayrollService {
 
                 if (outTime > inTime) {
                   const workInterval = Interval.fromDateTimes(inTime, outTime);
-                  const parts = workInterval.difference(lunchInterval);
 
-                  parts.forEach((part) => {
+                  // --- LOGIC TRỪ GIỜ TRƯA THÔNG MINH ---
+                  // Chỉ trừ nếu ca làm việc BẮT ĐẦU TRƯỚC 11:45 và KẾT THÚC SAU 13:15
+                  let actualWorkParts: Interval[] = [workInterval];
+
+                  if (
+                    workInterval.start < lunchStart &&
+                    workInterval.end > lunchEnd
+                  ) {
+                    actualWorkParts = workInterval.difference(lunchInterval);
+                  }
+
+                  actualWorkParts.forEach((part) => {
                     totalPayableDuration = totalPayableDuration.plus(
                       part.toDuration(),
                     );
                     payableWorkIntervals.push(part);
                   });
+
                   i++; // Skip next checkout
                 }
               }
             }
 
             console.log(
-              ` -> Ngày ${date}: Thực tế (trừ trưa): ${totalPayableDuration.toFormat('hh:mm')}`,
+              ` -> Ngày ${date}: Thực tế (Smart Lunch): ${totalPayableDuration.toFormat('hh:mm')}`,
             );
 
             // 2. TÍNH CÁC CA LÀM VIỆC (STANDARD PAY)
@@ -266,7 +276,7 @@ export class PayrollService {
                 staff.rates || {},
               );
 
-              // 3. TÍNH OT TIỀM NĂNG (LOGIC MỚI: Thực tế - Tổng các block đã tính lương)
+              // 3. TÍNH OT TIỀM NĂNG (RESIDUAL)
               let calculatedStandardDuration = Duration.fromMillis(0);
               finalWorkBlocks.forEach((block) => {
                 calculatedStandardDuration = calculatedStandardDuration.plus({
@@ -279,15 +289,10 @@ export class PayrollService {
               );
 
               if (potentialOtDuration.as('minutes') < 1) {
-                // Cho phép sai số nhỏ < 1 phút
                 potentialOtDuration = Duration.fromMillis(0);
               }
 
               const otMinutesDetected = potentialOtDuration.as('minutes');
-              console.log(
-                ` -> Tổng lương cứng (phút): ${calculatedStandardDuration.as('minutes')}`,
-              );
-              console.log(` -> OT Phát hiện: ${otMinutesDetected} phút`);
 
               // --- LOGIC GHI OT ---
               const existingOt = otRequestMap.get(`${staff.id}-${date}`);
@@ -312,7 +317,6 @@ export class PayrollService {
                   });
                 }
               } else {
-                // Nếu tính lại mà OT = 0 nhưng trong DB đang có OT Pending -> Xóa đi
                 if (
                   existingOt &&
                   existingOt.status === OtRequestStatus.PENDING
@@ -323,7 +327,6 @@ export class PayrollService {
 
               potentialOtMinutes = Math.round(otMinutesDetected);
             } else if (staff.rates && staff.rates['part-time']) {
-              // Không có lịch -> Tính part-time toàn bộ
               const durationMins = totalPayableDuration.as('minutes');
               finalWorkBlocks.push({
                 type: 'part-time',
@@ -351,62 +354,97 @@ export class PayrollService {
             }
           });
 
-          // --- TÍNH TIỀN LƯƠNG OT ĐÃ DUYỆT ---
+          // --- TÍNH TIỀN LƯƠNG OT ĐÃ DUYỆT (HỖ TRỢ BREAKDOWN) ---
           const otRequest = otRequestMap.get(`${staff.id}-${date}`);
           let otPay = 0;
           let approvedOtMinutes = 0;
 
-          if (
-            otRequest &&
-            otRequest.status === OtRequestStatus.APPROVED &&
-            otRequest.approvedDuration &&
-            otRequest.approvedRoleKey
-          ) {
+          if (otRequest && otRequest.status === OtRequestStatus.APPROVED) {
             try {
-              const roleKey = otRequest.approvedRoleKey;
-              const otMultiplier = otRequest.approvedMultiplier || 1;
-              const baseRateForOt = (staff.rates && staff.rates[roleKey]) || 0;
-
-              let durationObj: Duration;
+              // Ưu tiên 1: Tính theo mảng Breakdown (Split OT)
               if (
-                typeof otRequest.approvedDuration === 'object' &&
-                otRequest.approvedDuration !== null
+                otRequest.breakdown &&
+                Array.isArray(otRequest.breakdown) &&
+                otRequest.breakdown.length > 0
               ) {
-                durationObj = Duration.fromObject(
-                  otRequest.approvedDuration as any,
-                );
-              } else if (typeof otRequest.approvedDuration === 'string') {
-                try {
-                  durationObj = Duration.fromISO(otRequest.approvedDuration);
-                } catch (isoError) {
-                  const parts = otRequest.approvedDuration
-                    .split(':')
-                    .map(Number);
-                  if (parts.length === 3 && parts.every((p) => !isNaN(p))) {
-                    durationObj = Duration.fromObject({
-                      hours: parts[0],
-                      minutes: parts[1],
-                      seconds: parts[2],
+                for (const item of otRequest.breakdown) {
+                  const roleKey = item.role;
+                  const durationStr = item.duration;
+                  const multiplier = item.multiplier || 1.5;
+                  const baseRate = (staff.rates && staff.rates[roleKey]) || 0;
+
+                  let minutes = 0;
+                  try {
+                    const parts = durationStr.split(':').map(Number);
+                    minutes = parts[0] * 60 + parts[1];
+                  } catch (e) {}
+
+                  if (minutes > 0 && baseRate > 0) {
+                    const pay = (minutes / 60) * baseRate * multiplier;
+                    otPay += pay;
+                    approvedOtMinutes += minutes;
+
+                    finalWorkBlocks.push({
+                      type: `OT-${roleKey} (x${multiplier})`,
+                      duration: minutes,
+                      pay: Math.round(pay),
                     });
-                  } else {
-                    throw new Error('Invalid duration format');
                   }
                 }
-              } else {
-                throw new Error('Invalid duration format');
               }
+              // Ưu tiên 2: Tính theo cách cũ (Gộp) nếu không có breakdown
+              else if (
+                otRequest.approvedDuration &&
+                otRequest.approvedRoleKey
+              ) {
+                const roleKey = otRequest.approvedRoleKey;
+                const otMultiplier = otRequest.approvedMultiplier || 1;
+                const baseRateForOt =
+                  (staff.rates && staff.rates[roleKey]) || 0;
 
-              if (durationObj && durationObj.isValid) {
-                approvedOtMinutes = durationObj.as('minutes');
-                if (baseRateForOt > 0) {
-                  otPay =
-                    (approvedOtMinutes / 60) * baseRateForOt * otMultiplier;
+                let durationObj: Duration;
+                // ... (Logic parse duration cũ) ...
+                if (
+                  typeof otRequest.approvedDuration === 'object' &&
+                  otRequest.approvedDuration !== null
+                ) {
+                  durationObj = Duration.fromObject(
+                    otRequest.approvedDuration as any,
+                  );
+                } else if (typeof otRequest.approvedDuration === 'string') {
+                  try {
+                    durationObj = Duration.fromISO(otRequest.approvedDuration);
+                  } catch (e) {
+                    const parts = otRequest.approvedDuration
+                      .split(':')
+                      .map(Number);
+                    if (parts.length === 3 && parts.every((p) => !isNaN(p))) {
+                      durationObj = Duration.fromObject({
+                        hours: parts[0],
+                        minutes: parts[1],
+                        seconds: parts[2],
+                      });
+                    } else {
+                      throw new Error('Invalid duration');
+                    }
+                  }
+                } else {
+                  throw new Error('Invalid duration');
+                }
 
-                  finalWorkBlocks.push({
-                    type: `OT (${roleKey})`,
-                    duration: approvedOtMinutes,
-                    pay: Math.round(otPay),
-                  });
+                if (durationObj && durationObj.isValid) {
+                  const minutes = durationObj.as('minutes');
+                  approvedOtMinutes += minutes;
+                  if (baseRateForOt > 0) {
+                    const pay = (minutes / 60) * baseRateForOt * otMultiplier;
+                    otPay += pay;
+
+                    finalWorkBlocks.push({
+                      type: `OT (${roleKey})`,
+                      duration: minutes,
+                      pay: Math.round(pay),
+                    });
+                  }
                 }
               }
             } catch (e) {
@@ -433,7 +471,7 @@ export class PayrollService {
           });
         }
 
-        // --- Xử lý ngày CHỈ CÓ OT ---
+        // --- Xử lý ngày CHỈ CÓ OT (Cũng hỗ trợ Breakdown) ---
         allOtRequests.forEach((ot) => {
           if (
             ot.staffId === staff.id &&
@@ -448,14 +486,47 @@ export class PayrollService {
               pay: number;
             }[] = [];
 
-            if (ot.approvedDuration && ot.approvedRoleKey) {
-              try {
+            try {
+              // Breakdown logic cho ngày chỉ OT
+              if (
+                ot.breakdown &&
+                Array.isArray(ot.breakdown) &&
+                ot.breakdown.length > 0
+              ) {
+                for (const item of ot.breakdown) {
+                  const roleKey = item.role;
+                  const durationStr = item.duration;
+                  const multiplier = item.multiplier || 1.5;
+                  const baseRate = (staff.rates && staff.rates[roleKey]) || 0;
+
+                  let minutes = 0;
+                  try {
+                    const parts = durationStr.split(':').map(Number);
+                    minutes = parts[0] * 60 + parts[1];
+                  } catch (e) {}
+
+                  if (minutes > 0 && baseRate > 0) {
+                    const pay = (minutes / 60) * baseRate * multiplier;
+                    otPayOnly += pay;
+                    approvedOtMinutesOnly += minutes;
+
+                    otBlocksOnly.push({
+                      type: `OT-${roleKey} (x${multiplier})`,
+                      duration: minutes,
+                      pay: Math.round(pay),
+                    });
+                  }
+                }
+              }
+              // Old logic fallback
+              else if (ot.approvedDuration && ot.approvedRoleKey) {
                 const roleKey = ot.approvedRoleKey;
                 const otMultiplier = ot.approvedMultiplier || 1;
                 const baseRateForOt =
                   (staff.rates && staff.rates[roleKey]) || 0;
 
                 let durationObj: Duration;
+                // ... (Parse duration logic - rút gọn) ...
                 if (typeof ot.approvedDuration === 'string') {
                   try {
                     durationObj = Duration.fromISO(ot.approvedDuration);
@@ -471,19 +542,21 @@ export class PayrollService {
                   durationObj = Duration.fromObject(ot.approvedDuration as any);
                 }
 
-                approvedOtMinutesOnly = durationObj.as('minutes');
-                if (baseRateForOt > 0) {
-                  otPayOnly =
-                    (approvedOtMinutesOnly / 60) * baseRateForOt * otMultiplier;
+                const minutes = durationObj.as('minutes');
+                approvedOtMinutesOnly = minutes;
 
+                if (baseRateForOt > 0) {
+                  const pay = (minutes / 60) * baseRateForOt * otMultiplier;
+                  otPayOnly = pay;
                   otBlocksOnly.push({
                     type: `OT (${roleKey})`,
-                    duration: approvedOtMinutesOnly,
-                    pay: Math.round(otPayOnly),
+                    duration: minutes,
+                    pay: Math.round(pay),
                   });
                 }
-              } catch (e) {}
-            }
+              }
+            } catch (e) {}
+
             if (otPayOnly > 0) {
               totalPay += otPayOnly;
               dailyBreakdown.push({
@@ -517,6 +590,7 @@ export class PayrollService {
     }
   }
 
+  // --- Helper functions (ResolveOverlapping & GroupByDate) giữ nguyên ---
   private resolveOverlappingBlocks(
     intersections: {
       interval: Interval;
