@@ -136,7 +136,6 @@ export class PayrollService {
         for (const [date, dailyAttendances] of Object.entries(
           attendancesByDate,
         )) {
-          // Lấy thông tin hiển thị (Check-in sớm nhất và Check-out muộn nhất)
           const firstCheckIn = dailyAttendances.find(
             (a) => a.type === AttendanceType.CHECK_IN,
           );
@@ -152,14 +151,13 @@ export class PayrollService {
             pay: number;
           }[] = [];
 
-          // --- LOGIC MỚI: TÍNH TOÁN DỰA TRÊN CẶP CHECK-IN/OUT ---
+          // Chỉ xử lý khi có đủ dữ liệu chấm công
           if (dailyAttendances.length >= 2) {
-            // Sắp xếp lại để đảm bảo thứ tự thời gian
             dailyAttendances.sort(
               (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
             );
 
-            // Định nghĩa giờ nghỉ trưa
+            // Giờ nghỉ trưa
             const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
               zone: VN_TIMEZONE,
             });
@@ -171,12 +169,11 @@ export class PayrollService {
             let totalPayableDuration = Duration.fromMillis(0);
             const payableWorkIntervals: Interval[] = [];
 
-            // Duyệt qua danh sách để ghép cặp (Check-in -> Check-out)
+            // 1. TÍNH TỔNG GIỜ LÀM THỰC TẾ (Đã trừ trưa)
             for (let i = 0; i < dailyAttendances.length - 1; i++) {
               const current = dailyAttendances[i];
               const next = dailyAttendances[i + 1];
 
-              // Tìm cặp: Hiện tại là Check-in VÀ Kế tiếp là Check-out
               if (
                 current.type === AttendanceType.CHECK_IN &&
                 next.type === AttendanceType.CHECK_OUT
@@ -190,32 +187,26 @@ export class PayrollService {
 
                 if (outTime > inTime) {
                   const workInterval = Interval.fromDateTimes(inTime, outTime);
-
-                  // Trừ giờ nghỉ trưa cho CẶP NÀY (nếu có dính)
-                  // difference trả về mảng các khoảng thời gian không trùng với giờ nghỉ trưa
                   const parts = workInterval.difference(lunchInterval);
 
                   parts.forEach((part) => {
                     totalPayableDuration = totalPayableDuration.plus(
                       part.toDuration(),
                     );
-                    payableWorkIntervals.push(part); // Lưu lại để dùng tính giao thoa với lịch
+                    payableWorkIntervals.push(part);
                   });
-
-                  // Nhảy cóc qua log check-out vừa dùng để tránh lặp
-                  i++;
+                  i++; // Skip next checkout
                 }
               }
             }
 
             console.log(
-              ` -> Ngày ${date}: Tổng giờ làm thực tế (đã trừ trưa): ${totalPayableDuration.toFormat('hh:mm')}`,
+              ` -> Ngày ${date}: Thực tế (trừ trưa): ${totalPayableDuration.toFormat('hh:mm')}`,
             );
 
-            // --- BẮT ĐẦU TÍNH TOÁN SO KHỚP VỚI LỊCH ---
+            // 2. TÍNH CÁC CA LÀM VIỆC (STANDARD PAY)
             const dailySchedules =
               staffData?.schedules.filter((s) => s.date === date) || [];
-            let totalScheduledDuration = Duration.fromMillis(0);
 
             const potentialIntersections: {
               interval: Interval;
@@ -256,10 +247,6 @@ export class PayrollService {
                 }
 
                 if (scheduleInterval) {
-                  totalScheduledDuration = totalScheduledDuration.plus(
-                    scheduleInterval.toDuration(),
-                  );
-                  // So khớp schedule với các khoảng thời gian làm việc thực tế (payableWorkIntervals)
                   payableWorkIntervals.forEach((payableInterval) => {
                     const intersection =
                       payableInterval.intersection(scheduleInterval);
@@ -279,19 +266,33 @@ export class PayrollService {
                 staff.rates || {},
               );
 
-              // --- TÍNH OT TIỀM NĂNG ---
+              // 3. TÍNH OT TIỀM NĂNG (LOGIC MỚI: Thực tế - Tổng các block đã tính lương)
+              let calculatedStandardDuration = Duration.fromMillis(0);
+              finalWorkBlocks.forEach((block) => {
+                calculatedStandardDuration = calculatedStandardDuration.plus({
+                  minutes: block.duration,
+                });
+              });
+
               let potentialOtDuration = totalPayableDuration.minus(
-                totalScheduledDuration,
+                calculatedStandardDuration,
               );
-              if (potentialOtDuration.as('minutes') < 0) {
+
+              if (potentialOtDuration.as('minutes') < 1) {
+                // Cho phép sai số nhỏ < 1 phút
                 potentialOtDuration = Duration.fromMillis(0);
               }
 
               const otMinutesDetected = potentialOtDuration.as('minutes');
+              console.log(
+                ` -> Tổng lương cứng (phút): ${calculatedStandardDuration.as('minutes')}`,
+              );
+              console.log(` -> OT Phát hiện: ${otMinutesDetected} phút`);
 
               // --- LOGIC GHI OT ---
+              const existingOt = otRequestMap.get(`${staff.id}-${date}`);
+
               if (otMinutesDetected > 1) {
-                const existingOt = otRequestMap.get(`${staff.id}-${date}`);
                 if (existingOt) {
                   if (
                     existingOt.detectedDuration !==
@@ -310,7 +311,16 @@ export class PayrollService {
                     status: OtRequestStatus.PENDING,
                   });
                 }
+              } else {
+                // Nếu tính lại mà OT = 0 nhưng trong DB đang có OT Pending -> Xóa đi
+                if (
+                  existingOt &&
+                  existingOt.status === OtRequestStatus.PENDING
+                ) {
+                  await this.otRequestRepo.delete(existingOt.id);
+                }
               }
+
               potentialOtMinutes = Math.round(otMinutesDetected);
             } else if (staff.rates && staff.rates['part-time']) {
               // Không có lịch -> Tính part-time toàn bộ
@@ -392,7 +402,6 @@ export class PayrollService {
                   otPay =
                     (approvedOtMinutes / 60) * baseRateForOt * otMultiplier;
 
-                  // Thêm block OT vào danh sách hiển thị
                   finalWorkBlocks.push({
                     type: `OT (${roleKey})`,
                     duration: approvedOtMinutes,
