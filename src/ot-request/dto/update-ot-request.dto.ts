@@ -6,8 +6,27 @@ import {
   IsString,
   Min,
   Matches,
+  IsArray,
+  ValidateNested,
 } from 'class-validator';
 import { OtRequestStatus } from '../../entities/ot-request.entity';
+import { Type } from 'class-transformer';
+
+export class OtBreakdownItemDto {
+  @IsString()
+  @IsNotEmpty()
+  role: string;
+
+  @IsString()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'Thời gian phải đúng định dạng HH:mm',
+  })
+  duration: string;
+
+  @IsNumber()
+  @Min(0)
+  multiplier: number;
+}
 
 export class UpdateOtRequestDto {
   @IsEnum(OtRequestStatus)
@@ -36,5 +55,8 @@ export class UpdateOtRequestDto {
   approvedDuration?: string;
 
   @IsOptional()
-  breakdown?: { role: string; duration: string; multiplier: number }[];
+  @IsArray()
+  @ValidateNested({ each: true }) // Báo cho NestJS biết cần validate từng phần tử bên trong
+  @Type(() => OtBreakdownItemDto) // Quan trọng: Convert JSON object thành Class instance để không bị lọc bỏ
+  breakdown?: OtBreakdownItemDto[];
 }

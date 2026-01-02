@@ -156,7 +156,6 @@ export class PayrollService {
               (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
             );
 
-            // Định nghĩa giờ nghỉ trưa
             const lunchStart = DateTime.fromISO(`${date}T11:45:00`, {
               zone: VN_TIMEZONE,
             });
@@ -168,7 +167,7 @@ export class PayrollService {
             let totalPayableDuration = Duration.fromMillis(0);
             const payableWorkIntervals: Interval[] = [];
 
-            // 1. TÍNH TỔNG GIỜ LÀM THỰC TẾ (SMART LUNCH DEDUCTION)
+            // 1. TÍNH TỔNG GIỜ LÀM THỰC TẾ (Smart Lunch)
             for (let i = 0; i < dailyAttendances.length - 1; i++) {
               const current = dailyAttendances[i];
               const next = dailyAttendances[i + 1];
@@ -187,10 +186,7 @@ export class PayrollService {
                 if (outTime > inTime) {
                   const workInterval = Interval.fromDateTimes(inTime, outTime);
 
-                  // --- LOGIC TRỪ GIỜ TRƯA THÔNG MINH ---
-                  // Chỉ trừ nếu ca làm việc BẮT ĐẦU TRƯỚC 11:45 và KẾT THÚC SAU 13:15
                   let actualWorkParts: Interval[] = [workInterval];
-
                   if (
                     workInterval.start < lunchStart &&
                     workInterval.end > lunchEnd
@@ -204,15 +200,10 @@ export class PayrollService {
                     );
                     payableWorkIntervals.push(part);
                   });
-
-                  i++; // Skip next checkout
+                  i++;
                 }
               }
             }
-
-            console.log(
-              ` -> Ngày ${date}: Thực tế (Smart Lunch): ${totalPayableDuration.toFormat('hh:mm')}`,
-            );
 
             // 2. TÍNH CÁC CA LÀM VIỆC (STANDARD PAY)
             const dailySchedules =
@@ -294,9 +285,8 @@ export class PayrollService {
 
               const otMinutesDetected = potentialOtDuration.as('minutes');
 
-              // --- LOGIC GHI OT ---
+              // --- LOGIC GHI OT DETECTED ---
               const existingOt = otRequestMap.get(`${staff.id}-${date}`);
-
               if (otMinutesDetected > 1) {
                 if (existingOt) {
                   if (
@@ -324,7 +314,6 @@ export class PayrollService {
                   await this.otRequestRepo.delete(existingOt.id);
                 }
               }
-
               potentialOtMinutes = Math.round(otMinutesDetected);
             } else if (staff.rates && staff.rates['part-time']) {
               const durationMins = totalPayableDuration.as('minutes');
@@ -354,29 +343,41 @@ export class PayrollService {
             }
           });
 
-          // --- TÍNH TIỀN LƯƠNG OT ĐÃ DUYỆT (HỖ TRỢ BREAKDOWN) ---
+          // --- TÍNH TIỀN LƯƠNG OT ĐÃ DUYỆT (FIX BUG KHÔNG HIỆN) ---
           const otRequest = otRequestMap.get(`${staff.id}-${date}`);
           let otPay = 0;
           let approvedOtMinutes = 0;
 
           if (otRequest && otRequest.status === OtRequestStatus.APPROVED) {
             try {
-              // Ưu tiên 1: Tính theo mảng Breakdown (Split OT)
+              // 1. Xử lý Breakdown (Split OT)
+              let breakdownItems = otRequest.breakdown;
+
+              // FIX: TypeORM có thể trả về string JSON thay vì object
+              if (typeof breakdownItems === 'string') {
+                try {
+                  breakdownItems = JSON.parse(breakdownItems);
+                } catch (e) {}
+              }
+
               if (
-                otRequest.breakdown &&
-                Array.isArray(otRequest.breakdown) &&
-                otRequest.breakdown.length > 0
+                breakdownItems &&
+                Array.isArray(breakdownItems) &&
+                breakdownItems.length > 0
               ) {
-                for (const item of otRequest.breakdown) {
+                for (const item of breakdownItems) {
                   const roleKey = item.role;
-                  const durationStr = item.duration;
-                  const multiplier = item.multiplier || 1.5;
+                  const durationStr = item.duration; // "HH:mm"
+                  const multiplier = parseFloat(item.multiplier as any) || 1.5;
                   const baseRate = (staff.rates && staff.rates[roleKey]) || 0;
 
                   let minutes = 0;
+                  // Parse "00:30" thành 30 phút
                   try {
-                    const parts = durationStr.split(':').map(Number);
-                    minutes = parts[0] * 60 + parts[1];
+                    if (durationStr && durationStr.includes(':')) {
+                      const parts = durationStr.split(':').map(Number);
+                      minutes = parts[0] * 60 + parts[1];
+                    }
                   } catch (e) {}
 
                   if (minutes > 0 && baseRate > 0) {
@@ -385,14 +386,16 @@ export class PayrollService {
                     approvedOtMinutes += minutes;
 
                     finalWorkBlocks.push({
-                      type: `OT-${roleKey} (x${multiplier})`,
+                      type: `OT (${roleKey} x${multiplier})`,
                       duration: minutes,
                       pay: Math.round(pay),
                     });
                   }
+                  console.log('--- OT Item Processed ---');
+                  console.log(finalWorkBlocks);
                 }
               }
-              // Ưu tiên 2: Tính theo cách cũ (Gộp) nếu không có breakdown
+              // 2. Fallback về cách cũ (Gộp)
               else if (
                 otRequest.approvedDuration &&
                 otRequest.approvedRoleKey
@@ -403,33 +406,23 @@ export class PayrollService {
                   (staff.rates && staff.rates[roleKey]) || 0;
 
                 let durationObj: Duration;
-                // ... (Logic parse duration cũ) ...
-                if (
-                  typeof otRequest.approvedDuration === 'object' &&
-                  otRequest.approvedDuration !== null
-                ) {
-                  durationObj = Duration.fromObject(
-                    otRequest.approvedDuration as any,
-                  );
-                } else if (typeof otRequest.approvedDuration === 'string') {
+                if (typeof otRequest.approvedDuration === 'string') {
                   try {
                     durationObj = Duration.fromISO(otRequest.approvedDuration);
                   } catch (e) {
                     const parts = otRequest.approvedDuration
                       .split(':')
                       .map(Number);
-                    if (parts.length === 3 && parts.every((p) => !isNaN(p))) {
+                    if (parts.length >= 2)
                       durationObj = Duration.fromObject({
                         hours: parts[0],
                         minutes: parts[1],
-                        seconds: parts[2],
                       });
-                    } else {
-                      throw new Error('Invalid duration');
-                    }
                   }
                 } else {
-                  throw new Error('Invalid duration');
+                  durationObj = Duration.fromObject(
+                    otRequest.approvedDuration as any,
+                  );
                 }
 
                 if (durationObj && durationObj.isValid) {
@@ -471,7 +464,7 @@ export class PayrollService {
           });
         }
 
-        // --- Xử lý ngày CHỈ CÓ OT (Cũng hỗ trợ Breakdown) ---
+        // --- Xử lý ngày CHỈ CÓ OT (Cũng áp dụng fix JSON string) ---
         allOtRequests.forEach((ot) => {
           if (
             ot.staffId === staff.id &&
@@ -487,22 +480,31 @@ export class PayrollService {
             }[] = [];
 
             try {
-              // Breakdown logic cho ngày chỉ OT
+              let breakdownItems = ot.breakdown;
+              // FIX: Parse JSON string
+              if (typeof breakdownItems === 'string') {
+                try {
+                  breakdownItems = JSON.parse(breakdownItems);
+                } catch (e) {}
+              }
+
               if (
-                ot.breakdown &&
-                Array.isArray(ot.breakdown) &&
-                ot.breakdown.length > 0
+                breakdownItems &&
+                Array.isArray(breakdownItems) &&
+                breakdownItems.length > 0
               ) {
-                for (const item of ot.breakdown) {
+                for (const item of breakdownItems) {
                   const roleKey = item.role;
                   const durationStr = item.duration;
-                  const multiplier = item.multiplier || 1.5;
+                  const multiplier = parseFloat(item.multiplier as any) || 1.5;
                   const baseRate = (staff.rates && staff.rates[roleKey]) || 0;
 
                   let minutes = 0;
                   try {
-                    const parts = durationStr.split(':').map(Number);
-                    minutes = parts[0] * 60 + parts[1];
+                    if (durationStr && durationStr.includes(':')) {
+                      const parts = durationStr.split(':').map(Number);
+                      minutes = parts[0] * 60 + parts[1];
+                    }
                   } catch (e) {}
 
                   if (minutes > 0 && baseRate > 0) {
@@ -511,14 +513,14 @@ export class PayrollService {
                     approvedOtMinutesOnly += minutes;
 
                     otBlocksOnly.push({
-                      type: `OT-${roleKey} (x${multiplier})`,
+                      type: `OT (${roleKey} x${multiplier})`,
                       duration: minutes,
                       pay: Math.round(pay),
                     });
                   }
                 }
               }
-              // Old logic fallback
+              // Fallback Logic
               else if (ot.approvedDuration && ot.approvedRoleKey) {
                 const roleKey = ot.approvedRoleKey;
                 const otMultiplier = ot.approvedMultiplier || 1;
@@ -526,7 +528,6 @@ export class PayrollService {
                   (staff.rates && staff.rates[roleKey]) || 0;
 
                 let durationObj: Duration;
-                // ... (Parse duration logic - rút gọn) ...
                 if (typeof ot.approvedDuration === 'string') {
                   try {
                     durationObj = Duration.fromISO(ot.approvedDuration);
@@ -535,24 +536,24 @@ export class PayrollService {
                     durationObj = Duration.fromObject({
                       hours: parts[0],
                       minutes: parts[1],
-                      seconds: parts[2],
                     });
                   }
                 } else {
                   durationObj = Duration.fromObject(ot.approvedDuration as any);
                 }
 
-                const minutes = durationObj.as('minutes');
-                approvedOtMinutesOnly = minutes;
-
-                if (baseRateForOt > 0) {
-                  const pay = (minutes / 60) * baseRateForOt * otMultiplier;
-                  otPayOnly = pay;
-                  otBlocksOnly.push({
-                    type: `OT (${roleKey})`,
-                    duration: minutes,
-                    pay: Math.round(pay),
-                  });
+                if (durationObj && durationObj.isValid) {
+                  const minutes = durationObj.as('minutes');
+                  approvedOtMinutesOnly = minutes;
+                  if (baseRateForOt > 0) {
+                    const pay = (minutes / 60) * baseRateForOt * otMultiplier;
+                    otPayOnly = pay;
+                    otBlocksOnly.push({
+                      type: `OT (${roleKey})`,
+                      duration: minutes,
+                      pay: Math.round(pay),
+                    });
+                  }
                 }
               }
             } catch (e) {}
@@ -590,7 +591,7 @@ export class PayrollService {
     }
   }
 
-  // --- Helper functions (ResolveOverlapping & GroupByDate) giữ nguyên ---
+  // --- Helpers ---
   private resolveOverlappingBlocks(
     intersections: {
       interval: Interval;
